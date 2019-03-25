@@ -24,7 +24,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL){
 
 # Create data given the data generating process defined in 
 # the experiment control object
-do_experiment <- function(X, expControl, g=NULL, prop_score=NULL){
+do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
   ###
   # X (array):
   #    Matrix of observations
@@ -42,6 +42,8 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL){
   tau_zero = expControl$tau_zero
   mode = expControl$mode
   
+  logit <- function(x) 1/(1+exp(-x))
+  
   if(!"matrix" %in% class(X)){
     X <- as.matrix(X)
   }
@@ -57,12 +59,31 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL){
     }
   }
   
-  tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
-  y = beta_zero + X%*%beta + g*tau + rnorm(n_obs, 0, 0.5)
+if(mode %in% c('regression','classification')){
+  
+  if(mode == "regression"){
+      tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
+      y = beta_zero + X%*%beta + g*tau + rnorm(n_obs, 0, 0.5)
+  }
   
   if(mode == "classification"){
-    y = 1/(1+exp(-y))
+    tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
+    
+    y = beta_zero + X%*%beta + rnorm(n_obs, 0, 0.5)
+    
+    y0 = logit(y)
+    y1 = logit(y+tau)
+    tau = y1-y0
+    
+    y = logit(y+g*tau)
     y = as.numeric(y>=0.5)
+  }
+}else{
+  stop("Only mode 'classification' or 'regression' currently implemented")
+}
+  
+  if(X_out==FALSE){
+    X = NULL
   }
   
   return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score))
@@ -166,32 +187,88 @@ boxplot(ATE)
 abline(h=mean(exp$all$y) - mean(exp$none$y),col="red")
 
 #### CATE Estimation####
+# Check the MAE and especially Qini for the cost of
+# training CATE models on biased and corrected instead 
+# of 1:1 randomized data
+
+## Two-model approach
+# TODO: Finish evaluation of two-model approach
+source("t_logit.R")
+perf_CATE <- list()
+
+perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:10],
+                                   .combine = "rbind", .multicombine = TRUE) %do% {
+   t_logit <- T_Logit(X,exp$y, exp$g,
+                     exp$prop_score)
+   tau_hat <- predict(t_logit, X)
+   MAE <- mean(abs(exp$tau - tau_hat))
+   perf <- uplift::performance(tau_hat, rep(0, times = length(tau_hat)), exp$y, exp$g,
+                               direction =1) # Negative treatment effect
+   Qini <- qini(perf, direction = 1, plotit = FALSE)$Qini
+   c("MAE" = MAE, "Qini" = Qini)
+                                   }
+
+perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:10],
+                                                .combine = "rbind", .multicombine = TRUE) %do% {
+                                                  t_logit <- T_Logit(X,exp$y, exp$g,
+                                                                     exp$prop_score)
+                                                  tau_hat <- predict(t_logit, X)
+                                                  MAE <- mean(abs(exp$tau - tau_hat))
+                                                  perf <- uplift::performance(tau_hat, rep(0, times = length(tau_hat)), exp$y, exp$g,
+                                                                              direction =1) # Negative treatment effect
+                                                  Qini <- qini(perf, direction = 1, plotit = FALSE)$Qini
+                                                  c("MAE" = MAE, "Qini" = Qini)
+                                                }
+
+
+## Causal Forest ####
 library(causalTree)
 library(grf)
+library(foreach)
+library(uplift)
 
-MAE_tau <- list("balanced"=list(), "individual"=list())
+# Build causal trees based on balanced and efficient experiments
+# and compare mean absolute error and Qini score
+# TODO: The ATE is again a competitive predictor. That's 
+#       weird, find out why! 
 
-for(i in 1:100){
-exp <- balanced[[i]]
+MTRY=5
+NUM.TREES=1000
+
+perf_CATE[["CF"]][["balanced"]] <- foreach(exp=balanced[1:10],
+                                 .combine="rbind",.multicombine=TRUE) %do%{
 cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                  W.hat = exp$prop_score,
-                 num.trees=100, min.node.size=20, mtry=5,
+                 honesty=TRUE,
+                 num.trees=NUM.TREES, min.node.size=10, 
+                 mtry=MTRY, sample.fraction = 0.5,
                  seed=123)
 tau_hat <- predict(cf, X)
-MAE_tau[["balanced"]][i] <- mean(abs(exp$tau - tau_hat)[,1])
+MAE <- mean(abs(exp$tau - tau_hat)[,1])
+perf <- uplift::performance(tau_hat[,1],rep(0,times=length(tau_hat[,1])), exp$y, exp$g,
+                            direction=1) # Negative treatment effect
+Qini <- qini(perf, direction=1, plotit=FALSE)$Qini
+c("MAE"=MAE,"Qini"=Qini)
 }
 
-for(i in 1:100){
-  exp <- individual[[i]]
+perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:10],
+                                   .combine="rbind",.multicombine=TRUE) %do%{
   cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                            W.hat = exp$prop_score,
-                           num.trees=100, min.node.size=20, mtry=5,
+                           honesty=TRUE,
+                           num.trees=NUM.TREES, min.node.size=10, 
+                           mtry=MTRY, sample.fraction=0.5,
                            seed=123)
   tau_hat <- predict(cf, X)
-  MAE_tau[["individual"]][i] <- mean(abs(exp$tau - tau_hat)[,1])
+  MAE <- mean(abs(exp$tau - tau_hat)[,1])
+  perf <- uplift::performance(tau_hat[,1],rep(0,times=length(tau_hat[,1])), exp$y, exp$g,
+                      direction=1) # Negative treatment effect
+  Qini <- qini(perf, direction=1, plotit=FALSE)$Qini
+  c("MAE"=MAE,"Qini"=Qini)
 }
 
 mean(abs(exp$tau - ATE_hat["balanced"])[,1])
-sapply(MAE_tau, function(x)mean(unlist(x)))
+sapply(perf_CATE, function(x) colMeans(x))
+
 
 
