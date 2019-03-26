@@ -102,7 +102,7 @@ X_Customers <- data.frame(X_Customers)
 #       Would produce only the in-sample treatment effect (-> reject inference problem)
 X <- X_Customers[sample(1:N_CUSTOMER, size = N_CUSTOMER*RATIO_SAMPLE, replace = FALSE),]
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", 
-                      beta_zero=-2, tau_zero = -2)
+                      beta_zero=-0.6, tau_zero = -0.05)
 
 #### Run experiments ####
 exp <- list()
@@ -111,7 +111,7 @@ exp$all <- do_experiment(X, expControl = expCtrl, prop_score = 1)
 # Balanced random treatment
 exp$balanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
 # Conservative random treatment
-exp$imbalanced <- do_experiment(X, expControl = expCtrl, prop_score = mean(exp$none$y))
+exp$imbalanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
 # Churn baseline
 mean(exp$none$y)
 
@@ -134,15 +134,17 @@ treat_prob <- churn_pred
 exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
 
 ### Experiment outcomes ####
-COST_TREATMENT_FIX = 1
-COST_TREATMENT_VAR = 0.1
-COST_CHURN = 100
+EXPERIMENT_SIZE = 150000 # Number of people in experiment
+COST_TREATMENT_FIX = 0 # Contact costs
+CLV = 50 # Customer lifetime value
+COST_TREATMENT_VAR = 1/20*CLV # Price reduction
+COST_CHURN = CLV # Foregone profit
 # Expected churn costs per customer
-churn_cost <- function(y, g, cost_treatment_fix, 
+churn_cost <- function(n_customer, y, g, cost_treatment_fix, 
                        cost_treatment_var, cost_churn){
-    mean(g)*               -cost_treatment_fix +
+    (mean(g)*               -cost_treatment_fix +
     mean(g)*(1-mean(y))*   -cost_treatment_var +
-    mean(y)*               -cost_churn
+    mean(y)*               -cost_churn)*n_customer
 }
 
 # Ratio of treated
@@ -150,15 +152,15 @@ sapply(exp, function(x)mean(x$g))
 # Churn rate
 sapply(exp, function(x)mean(x$y))
 # Expected outcome per customer (max. 0, higher is better)
-sapply(exp[c("balanced","individual")], 
-       function(A) churn_cost(A$y, A$g, 
+sapply(exp[c("none","all","balanced","imbalanced","individual")], 
+       function(A) churn_cost(EXPERIMENT_SIZE, A$y, A$g, 
                      COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN))
 
 ### ATE Estimation ####
-calc_ATE <- function(y, g, prop_score=NULL){
-  if(is.null(prop_score)){
-    prop_score = rep(0.5, length(y))
-  }
+calc_ATE <- function(y, g, prop_score){
+  #if(is.null(prop_score)){
+  #  prop_score = rep(0.5, length(y))
+  #}
   return( (sum(y*g/prop_score) - sum(y*(1-g)/(1-prop_score)) ) /length(y) )
 }
 
@@ -169,11 +171,14 @@ treat_prob <- pmin(pmax(churn_pred, 0.05), 0.95)
 
 ATE <- data.frame()
 balanced <- list()
+imbalanced <- list()
 individual <- list()
 # Repeat sampling n times
 for(i in 1:200){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g)
+ imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
+ ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
  individual[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
  }
@@ -187,6 +192,8 @@ boxplot(ATE)
 abline(h=mean(exp$all$y) - mean(exp$none$y),col="red")
 
 #### CATE Estimation####
+library(foreach)
+library(uplift)
 # Check the MAE and especially Qini for the cost of
 # training CATE models on biased and corrected instead 
 # of 1:1 randomized data
@@ -224,9 +231,6 @@ perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:10],
 ## Causal Forest ####
 library(causalTree)
 library(grf)
-library(foreach)
-library(uplift)
-
 # Build causal trees based on balanced and efficient experiments
 # and compare mean absolute error and Qini score
 # TODO: The ATE is again a competitive predictor. That's 
@@ -267,8 +271,10 @@ perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:10],
   c("MAE"=MAE,"Qini"=Qini)
 }
 
+plot.default(tau_hat[,1], exp$tau[,1])
+
 mean(abs(exp$tau - ATE_hat["balanced"])[,1])
-sapply(perf_CATE, function(x) colMeans(x))
+lapply(perf_CATE, lapply, function(x) colMeans(x))
 
 
 
