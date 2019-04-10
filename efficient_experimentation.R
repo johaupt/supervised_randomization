@@ -134,17 +134,25 @@ treat_prob <- churn_pred
 exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
 
 ### Experiment outcomes ####
-EXPERIMENT_SIZE = 150000 # Number of people in experiment
-COST_TREATMENT_FIX = 0 # Contact costs
-CLV = 50 # Customer lifetime value
+EXPERIMENT_SIZE = 100000 # Number of people in experiment
+COST_TREATMENT_FIX = 1 # Contact costs
+CLV = 100 # Customer lifetime value
 COST_TREATMENT_VAR = 1/20*CLV # Price reduction
 COST_CHURN = CLV # Foregone profit
 # Expected churn costs per customer
-churn_cost <- function(n_customer, y, g, cost_treatment_fix, 
+churn_cost <- function(y,g, cost_treatment_fix, 
                        cost_treatment_var, cost_churn){
-    (mean(g)*               -cost_treatment_fix +
-    mean(g)*(1-mean(y))*   -cost_treatment_var +
-    mean(y)*               -cost_churn)*n_customer
+  total <- sum((1-g)*(1-y)) * 0 +
+           sum(g*y)         * -(cost_treatment_fix + cost_churn) +
+           sum(g*(1-y))     * -(cost_treatment_fix + cost_treatment_var)+
+           sum((1-g)*y)     * -cost_churn
+  
+  return(total)
+  
+    #(mean(g)*               -cost_treatment_fix +
+    #mean(g)*(1-mean(y))*   -cost_treatment_var +
+    #mean(y)*               -cost_churn)*
+    #n_customer
 }
 
 # Ratio of treated
@@ -153,7 +161,7 @@ sapply(exp, function(x)mean(x$g))
 sapply(exp, function(x)mean(x$y))
 # Expected outcome per customer (max. 0, higher is better)
 sapply(exp[c("none","all","balanced","imbalanced","individual")], 
-       function(A) churn_cost(EXPERIMENT_SIZE, A$y, A$g, 
+       function(A) churn_cost(A$y, A$g, 
                      COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN))
 
 ### ATE Estimation ####
@@ -174,9 +182,9 @@ balanced <- list()
 imbalanced <- list()
 individual <- list()
 # Repeat sampling n times
-for(i in 1:200){
+for(i in 1:1000){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
- ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g)
+ ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
  individual[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
@@ -201,29 +209,26 @@ library(uplift)
 ## Two-model approach
 # TODO: Finish evaluation of two-model approach
 source("t_logit.R")
+source("Qini.R")
 perf_CATE <- list()
 
-perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:10],
+perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:100],
                                    .combine = "rbind", .multicombine = TRUE) %do% {
    t_logit <- T_Logit(X,exp$y, exp$g,
                      exp$prop_score)
    tau_hat <- predict(t_logit, X)
    MAE <- mean(abs(exp$tau - tau_hat))
-   perf <- uplift::performance(tau_hat, rep(0, times = length(tau_hat)), exp$y, exp$g,
-                               direction =1) # Negative treatment effect
-   Qini <- qini(perf, direction = 1, plotit = FALSE)$Qini
+   Qini <- qini_score(tau_hat, exp$y, exp$g)
    c("MAE" = MAE, "Qini" = Qini)
                                    }
 
-perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:10],
+perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
                                                 .combine = "rbind", .multicombine = TRUE) %do% {
                                                   t_logit <- T_Logit(X,exp$y, exp$g,
                                                                      exp$prop_score)
                                                   tau_hat <- predict(t_logit, X)
                                                   MAE <- mean(abs(exp$tau - tau_hat))
-                                                  perf <- uplift::performance(tau_hat, rep(0, times = length(tau_hat)), exp$y, exp$g,
-                                                                              direction =1) # Negative treatment effect
-                                                  Qini <- qini(perf, direction = 1, plotit = FALSE)$Qini
+                                                  Qini <- qini_score(tau_hat, exp$y, exp$g)
                                                   c("MAE" = MAE, "Qini" = Qini)
                                                 }
 
@@ -239,23 +244,20 @@ library(grf)
 MTRY=5
 NUM.TREES=1000
 
-perf_CATE[["CF"]][["balanced"]] <- foreach(exp=balanced[1:10],
+perf_CATE[["CF"]][["balanced"]] <- foreach(exp=balanced[1:100],
                                  .combine="rbind",.multicombine=TRUE) %do%{
 cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                  W.hat = exp$prop_score,
                  honesty=TRUE,
                  num.trees=NUM.TREES, min.node.size=10, 
-                 mtry=MTRY, sample.fraction = 0.5,
+                 mtry=MTRY, sample.fraction = 0.2,
                  seed=123)
 tau_hat <- predict(cf, X)
-MAE <- mean(abs(exp$tau - tau_hat)[,1])
-perf <- uplift::performance(tau_hat[,1],rep(0,times=length(tau_hat[,1])), exp$y, exp$g,
-                            direction=1) # Negative treatment effect
-Qini <- qini(perf, direction=1, plotit=FALSE)$Qini
-c("MAE"=MAE,"Qini"=Qini)
+c("MAE"=mean(abs(exp$tau - tau_hat)[,1]),
+  "Qini"=qini_score(tau_hat[,1], exp$y, exp$g))
 }
 
-perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:10],
+perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:100],
                                    .combine="rbind",.multicombine=TRUE) %do%{
   cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                            W.hat = exp$prop_score,
@@ -264,17 +266,15 @@ perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:10],
                            mtry=MTRY, sample.fraction=0.5,
                            seed=123)
   tau_hat <- predict(cf, X)
-  MAE <- mean(abs(exp$tau - tau_hat)[,1])
-  perf <- uplift::performance(tau_hat[,1],rep(0,times=length(tau_hat[,1])), exp$y, exp$g,
-                      direction=1) # Negative treatment effect
-  Qini <- qini(perf, direction=1, plotit=FALSE)$Qini
-  c("MAE"=MAE,"Qini"=Qini)
+  c("MAE"=mean(abs(exp$tau - tau_hat)[,1]),
+    "Qini"=qini_score(tau_hat[,1], exp$y, exp$g))
 }
 
 plot.default(tau_hat[,1], exp$tau[,1])
 
 mean(abs(exp$tau - ATE_hat["balanced"])[,1])
-lapply(perf_CATE, lapply, function(x) colMeans(x))
+res <- lapply(perf_CATE, lapply, function(x) colMeans(x))
+data.frame(res)
 
 
 
