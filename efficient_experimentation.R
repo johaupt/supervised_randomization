@@ -233,6 +233,35 @@ perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
                                                 }
 
 
+## Two-model double robust (DR)
+# TODO: Finish evaluation of two-model approach
+source("t_logit_DR.R")
+
+
+
+perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:50],
+                                                   .combine = "rbind", .multicombine = TRUE) %do% {
+                                                     t_logit_DR <- T_Logit_DR(X,exp$y, exp$g,
+                                                                              exp$prop_score)
+                                                     tau_hat <- predict(t_logit_DR, X)
+                                                     MAE <- mean(abs(exp$tau - tau_hat))
+                                                     Qini <- qini_score(tau_hat, exp$y, exp$g)
+                                                     c("MAE" = MAE, "Qini" = Qini)
+                                                   }
+
+perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:50],
+                                                     .combine = "rbind", .multicombine = TRUE) %do% {
+                                                       t_logit_DR <- T_Logit_DR(X,exp$y, exp$g,
+                                                                                exp$prop_score)
+                                                       tau_hat <- predict(t_logit_DR, X)
+                                                       MAE <- mean(abs(exp$tau - tau_hat))
+                                                       Qini <- qini_score(tau_hat, exp$y, exp$g)
+                                                       c("MAE" = MAE, "Qini" = Qini)
+                                                     }
+
+
+       
+       
 ## Causal Forest ####
 library(causalTree)
 library(grf)
