@@ -1,3 +1,7 @@
+install.packages("drtmle")
+library(drtmle)
+library(SuperLearner)
+
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
 # the same coefficients
@@ -288,6 +292,10 @@ plot.default(tau_hat[,1], exp$tau[,1])
 mean(abs(exp$tau - ATE_hat["balanced"])[,1])
 res <- lapply(perf_CATE, lapply, function(x) colMeans(x))
 data.frame(res)
+
+              
+# Test sig. mean difference
+t.test(perf_CATE$t_logit$balanced[,1], perf_CATE$t_logit$individual[,1])
 
 
 
