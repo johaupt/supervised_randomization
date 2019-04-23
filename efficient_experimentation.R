@@ -251,6 +251,30 @@ perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
                                                   c("MAE" = MAE, "Qini" = Qini)
                                                 }
 
+# Double Robust for CATE 
+source("t_logit_DR.R")
+perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:100],
+                                                   .combine = "rbind", .multicombine = TRUE) %do% {
+                                                     t_logit <- T_Logit_DR(X,exp$y, exp$g,
+                                                                           exp$prop_score)
+                                                     tau_hat <- predict(t_logit, X)
+                                                     MAE <- mean(abs(exp$tau - tau_hat))
+                                                     Qini <- qini_score(tau_hat, exp$y, exp$g)
+                                                     c("MAE" = MAE, "Qini" = Qini)
+                                                   }
+
+
+
+perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:100],
+                                                     .combine = "rbind", .multicombine = TRUE) %do% {
+                                                       t_logit <- T_Logit_DR(X,exp$y, exp$g,
+                                                                             exp$prop_score)
+                                                       tau_hat <- predict(t_logit, X)
+                                                       MAE <- mean(abs(exp$tau - tau_hat))
+                                                       Qini <- qini_score(tau_hat, exp$y, exp$g)
+                                                       c("MAE" = MAE, "Qini" = Qini)
+                                                     }
+
 
 ## Causal Forest ####
 library(causalTree)
