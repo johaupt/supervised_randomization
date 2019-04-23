@@ -165,10 +165,10 @@ treat_prob4 <- churn_pred4
 exp$individual4 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob4)
 
 # Output influence of covariates on target variable for response models in publication-ready quality
-stargazer(response_model, type="text", out="logit.htm") # logit model
-stargazer(response_model2, type="text", out="probit.htm") # probit model
-stargazer(response_model3, type="text", out="cauchit.htm") # cauchit model
-stargazer(response_model4, type="text", out="cauchit.htm") # cloglog model
+stargazer(response_model, type="text") # logit model
+stargazer(response_model2, type="text") # probit model
+stargazer(response_model3, type="text") # cauchit model
+stargazer(response_model4, type="text") # cloglog model
 
 ### Experiment outcomes ####
 EXPERIMENT_SIZE = 100000 # Number of people in experiment
@@ -291,13 +291,13 @@ source("Qini.R")
 perf_CATE <- list()
 
 perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:100],
-                                   .combine = "rbind", .multicombine = TRUE) %do% {
-   t_logit <- T_Logit(X,exp$y, exp$g,
-                     exp$prop_score)
-   tau_hat <- predict(t_logit, X)
-   MAE <- mean(abs(exp$tau - tau_hat))
-   Qini <- qini_score(tau_hat, exp$y, exp$g)
-   c("MAE" = MAE, "Qini" = Qini)
+                                              .combine = "rbind", .multicombine = TRUE) %do% {
+                                               t_logit <- T_Logit(X,exp$y, exp$g,
+                                                                  exp$prop_score)
+                                               tau_hat <- predict(t_logit, X)
+                                               MAE <- mean(abs(exp$tau - tau_hat))
+                                               Qini <- qini_score(tau_hat, exp$y, exp$g)
+                                               c("MAE" = MAE, "Qini" = Qini)
                                    }
 
 perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
@@ -314,9 +314,9 @@ perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
 source("t_logit_DR.R")
 perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:100],
                                                    .combine = "rbind", .multicombine = TRUE) %do% {
-                                                     t_logit <- T_Logit_DR(X,exp$y, exp$g,
+                                                     t_logit_dr <- T_Logit_DR(X,exp$y, exp$g,
                                                                            exp$prop_score)
-                                                     tau_hat <- predict(t_logit, X)
+                                                     tau_hat <- predict(t_logit_dr, X)
                                                      MAE <- mean(abs(exp$tau - tau_hat))
                                                      Qini <- qini_score(tau_hat, exp$y, exp$g)
                                                      c("MAE" = MAE, "Qini" = Qini)
@@ -326,9 +326,9 @@ perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:100],
 
 perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:100],
                                                      .combine = "rbind", .multicombine = TRUE) %do% {
-                                                       t_logit <- T_Logit_DR(X,exp$y, exp$g,
+                                                       t_logit_dr <- T_Logit_DR(X,exp$y, exp$g,
                                                                              exp$prop_score)
-                                                       tau_hat <- predict(t_logit, X)
+                                                       tau_hat <- predict(t_logit_dr, X)
                                                        MAE <- mean(abs(exp$tau - tau_hat))
                                                        Qini <- qini_score(tau_hat, exp$y, exp$g)
                                                        c("MAE" = MAE, "Qini" = Qini)
