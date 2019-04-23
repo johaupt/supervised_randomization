@@ -174,9 +174,10 @@ stargazer(response_model4, type="text", out="cauchit.htm") # cloglog model
 EXPERIMENT_SIZE = 100000 # Number of people in experiment
 COST_TREATMENT_FIX = 1 # Contact costs
 
+CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
 cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=9)
 colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")
-CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
+
 
 for(j in 1:length(CLV_matrix)) {
   
@@ -246,7 +247,7 @@ imbalanced <- list()
 individual <- list()
 individual_dr <- list()
 # Repeat sampling n times
-for(i in 1:1000){
+for(i in 1:500){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
