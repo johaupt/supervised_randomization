@@ -274,7 +274,7 @@ ATE_hat <- apply(ATE,2,mean)
 ATE_hat
 
 ate_box <- melt(ATE)
-ggplot(data = ate_box, aes(x=variable, y=value)) + 
+ate_plot <- ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
   geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
@@ -282,7 +282,8 @@ ggplot(data = ate_box, aes(x=variable, y=value)) +
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
                             "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
                                           
-                                          
+  plot_grid(ate_plot) + theme(plot.background = element_rect(color = "black", size=0.7))
+                                       
                                           
                                           
 # T-Test for mean Difference (H0)
