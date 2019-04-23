@@ -277,6 +277,25 @@ t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 acce
 t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 accepeted
 t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0 accepeted
 
+# Test for Normal-distribution (H0)
+shapiro.test(ATE$balanced) # H0: not sig. different from normal distributon
+shapiro.test(ATE$individual_dr)
+
+plot(density(ATE$balanced))
+plot(density(ATE$individual))
+plot(density(ATE$individual_dr))
+
+# Test for equal variance (H0)
+# Group samples 
+lev_sample <- c(ATE$balanced, ATE$individual,ATE$individual_dr)
+
+
+lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
+leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance -> rejected -> ind_dr has smaller variance 
+
+                                        
+                                          
+                                          
 #### CATE Estimation####
 library(foreach)
 library(uplift)
