@@ -5,6 +5,10 @@ library(SuperLearner)
 install.packages("stargazer")
 library(stargazer)
 
+if(!require("ggplot2")) install.packages("ggplot2"); library("ggplot2")
+if(!require("reshape")) install.packages("reshape"); library("reshape")
+if(!require("cowplot")) install.packages("cowplot"); library("cowplot")
+
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
 # the same coefficients
@@ -268,10 +272,19 @@ mean(exp$all$y) - mean(exp$none$y)
 # Estimated ATE
 ATE_hat <- apply(ATE,2,mean)
 ATE_hat
-boxplot(ATE)
-abline(h=mean(exp$all$y) - mean(exp$none$y),col="red")
-abline(h=median(exp$all$y) - median(exp$none$y),col="blue")
 
+ate_box <- melt(ATE)
+ggplot(data = ate_box, aes(x=variable, y=value)) + 
+  geom_boxplot() + 
+  stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
+  geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
+  labs(x="Experiment design", y = "ATE") +
+  scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
+                            "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
+                                          
+                                          
+                                          
+                                          
 # T-Test for mean Difference (H0)
 t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 accepeted
 t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 accepeted
