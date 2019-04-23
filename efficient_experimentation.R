@@ -2,6 +2,8 @@
 install.packages("drtmle")
 library(drtmle)
 library(SuperLearner)
+install.packages("stargazer")
+library(stargazer)
 
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
@@ -138,36 +140,92 @@ churn_pred <- pmin(pmax(churn_pred, 0.05), 0.95)
 treat_prob <- churn_pred
 exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
 
+# Second response model (probit)
+response_model2 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="probit"))
+churn_pred2 <- predict(response_model2, X, type = "response")
+ModelMetrics::auc(exp$none$y, churn_pred)
+churn_pred2 <- pmin(pmax(churn_pred, 0.05), 0.95)
+treat_prob2 <- churn_pred2
+exp$individual2 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob2)
+
+# Third response model (cauchit)
+response_model3 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cauchit"))
+churn_pred3 <- predict(response_model3, X, type = "response")
+ModelMetrics::auc(exp$none$y, churn_pred)
+churn_pred3 <- pmin(pmax(churn_pred, 0.05), 0.95)
+treat_prob3 <- churn_pred3
+exp$individual3 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob3)
+
+# Fourth response model (cloglog; complementary log-log)
+response_model4 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cloglog"))
+churn_pred4 <- predict(response_model4, X, type = "response")
+ModelMetrics::auc(exp$none$y, churn_pred)
+churn_pred4 <- pmin(pmax(churn_pred, 0.05), 0.95)
+treat_prob4 <- churn_pred4
+exp$individual4 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob4)
+
+# Output influence of covariates on target variable for response models in publication-ready quality
+stargazer(response_model, type="text", out="logit.htm") # logit model
+stargazer(response_model2, type="text", out="probit.htm") # probit model
+stargazer(response_model3, type="text", out="cauchit.htm") # cauchit model
+stargazer(response_model4, type="text", out="cauchit.htm") # cloglog model
+
 ### Experiment outcomes ####
 EXPERIMENT_SIZE = 100000 # Number of people in experiment
 COST_TREATMENT_FIX = 1 # Contact costs
-CLV = 100 # Customer lifetime value
-COST_TREATMENT_VAR = 1/20*CLV # Price reduction
-COST_CHURN = CLV # Foregone profit
-# Expected churn costs per customer
-churn_cost <- function(y,g, cost_treatment_fix, 
-                       cost_treatment_var, cost_churn){
-  total <- sum((1-g)*(1-y)) * 0 +
-           sum(g*y)         * -(cost_treatment_fix + cost_churn) +
-           sum(g*(1-y))     * -(cost_treatment_fix + cost_treatment_var)+
-           sum((1-g)*y)     * -cost_churn
+
+cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=9)
+colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")
+CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
+
+for(j in 1:length(CLV_matrix)) {
   
-  return(total)
+  CLV = CLV_matrix[j] # Customer lifetime value
   
+  
+  COST_TREATMENT_VAR = 1/20*CLV # Price reduction
+  COST_CHURN = CLV # Foregone profit
+  # Expected churn costs per customer
+  churn_cost <- function(y, g, COST_TREATMENT_FIX, 
+                         COST_TREATMENT_VAR, COST_CHURN){
+    total <- sum((1-g)*(1-y)) * 0 +
+      sum(g*y)         * -(COST_TREATMENT_FIX + COST_CHURN) +
+      sum(g*(1-y))     * -(COST_TREATMENT_FIX + COST_TREATMENT_VAR)+
+      sum((1-g)*y)     * -COST_CHURN
+    
+    return(total)
+    
     #(mean(g)*               -cost_treatment_fix +
     #mean(g)*(1-mean(y))*   -cost_treatment_var +
     #mean(y)*               -cost_churn)*
     #n_customer
+  }
+  
+  # Ratio of treated
+  sapply(exp, function(x)mean(x$g))
+  # Churn rate
+  sapply(exp, function(x)mean(x$y))
+  # Expected outcome per customer (max. 0, higher is better)
+  sapply(exp[c("none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")], 
+         function(A) churn_cost(A$y, A$g, 
+                                COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN))
+  
+  # Churn costs per scenario and unit of observation
+  sapply(exp[c("none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")],
+         function(B) churn_cost(B$y, B$g, 
+                                COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN) / EXPERIMENT_SIZE)
+  
+  churn_cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")],
+                                          function(B) churn_cost(B$y, B$g, 
+                                                                 COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN) / EXPERIMENT_SIZE))
+  
+  
+  cost_all[j,1] <- CLV_matrix[j]
+  cost_all[j,c(2:ncol(cost_all))] <- churn_cost_scenario 
+  
 }
 
-# Ratio of treated
-sapply(exp, function(x)mean(x$g))
-# Churn rate
-sapply(exp, function(x)mean(x$y))
-# Expected outcome per customer (max. 0, higher is better)
-sapply(exp[c("none","all","balanced","imbalanced","individual")], 
-       function(A) churn_cost(A$y, A$g, 
-                     COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN))
+cost_all
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
