@@ -212,6 +212,12 @@ ATE_hat
 boxplot(ATE)
 abline(h=mean(exp$all$y) - mean(exp$none$y),col="red")
 abline(h=median(exp$all$y) - median(exp$none$y),col="blue")
+
+# T-Test for mean Difference (H0)
+t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 accepeted
+t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 accepeted
+t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0 accepeted
+
 #### CATE Estimation####
 library(foreach)
 library(uplift)
