@@ -249,7 +249,7 @@ ATE <- data.frame()
 balanced <- list()
 imbalanced <- list()
 individual <- list()
-individual_dr <- list()
+
 # Repeat sampling n times
 for(i in 1:500){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
