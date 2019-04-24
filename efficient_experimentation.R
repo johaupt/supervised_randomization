@@ -1,4 +1,7 @@
 #### Packages ####
+#library(pacman)
+#pacman::p_load("ggplot2","reshape","cowplot","car","drtmle","SuperLearner","stargazer","grf","foreach","uplift")
+
 if(!require("ggplot2")) install.packages("ggplot2"); library("ggplot2")
 if(!require("reshape")) install.packages("reshape"); library("reshape")
 if(!require("cowplot")) install.packages("cowplot"); library("cowplot")
@@ -10,97 +13,7 @@ if(!require("grf")) install.packages("grf"); library("grf")
 if(!require("foreach")) install.packages("foreach"); library("foreach")
 if(!require("uplift")) install.packages("uplift"); library("uplift")
 
-#### Experiment Functions ####
-# Define the experiment to be able to run it several times with 
-# the same coefficients
-expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL){
-  ###
-  # n_var (int): Number of variables
-  # model (str): 'regression' or binary 'classification'
-  # tau_zero (float): Homogeneous/baseline treatment effect
-  # beta_zero (float): Response constant
-  ###
-  beta_zero = ifelse(is.null(beta_zero),0,beta_zero)
-  beta = rnorm(n_var, mean = 0, sd = 0.2)
-  beta_x2 = rnorm(n_var, mean = 0, sd = 0.2)
-  beta_tau = rnorm(n_var, mean = 0, sd = 0.2)
-  if(is.null(tau_zero)){
-      tau_zero = rnorm(1, mean=-0.1, sd=0.01)
-  }
-  
-  return(list("beta_zero"=beta_zero, "beta"=beta, "beta_x2"=beta_x2, 
-              "beta_tau"=beta_tau, "tau_zero" = tau_zero,
-              "mode"=mode))
-  
-}
-
-# Create data given the data generating process defined in 
-# the experiment control object
-do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
-  ###
-  # X (array):
-  #    Matrix of observations
-  # g (vector of int): 
-  #    Binary treatment assignment (0: control, 1:treatment) 
-  # prop_score (single float or vector of floats): 
-  #    Propensity score for random treatment. If g is not NULL it will override prop_score
-  #
-  ###
-  n_obs = nrow(X)
-  beta_zero = expControl$beta_zero
-  beta = expControl$beta
-  beta_x2 = expControl$beta_x2
-  beta_tau = expControl$beta_tau
-  tau_zero = expControl$tau_zero
-  mode = expControl$mode
-  
-  logit <- function(x) 1/(1+exp(-x))
-  
-  if(!"matrix" %in% class(X)){
-    X <- as.matrix(X)
-  }
-  
-  if(is.null(g)){
-    if(is.null(prop_score)){
-        g = rep(0, times=nrow(X))
-    }else{
-        g = rbinom(nrow(X), 1, prop_score)
-        if(length(prop_score)==1){
-          prop_score <- rep(prop_score, times=nrow(X))
-        }
-    }
-  }
-  
-if(mode %in% c('regression','classification')){
-  
-  if(mode == "regression"){
-      tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
-      y = beta_zero + X%*%beta + g*tau + rnorm(n_obs, 0, 0.5)
-  }
-  
-  if(mode == "classification"){
-    tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
-    
-    y = beta_zero + X%*%beta + rnorm(n_obs, 0, 0.5)
-    
-    y0 = logit(y)
-    y1 = logit(y+tau)
-    tau = y1-y0
-    
-    y = logit(y+g*tau)
-    y = as.numeric(y>=0.5)
-  }
-}else{
-  stop("Only mode 'classification' or 'regression' currently implemented")
-}
-  
-  if(X_out==FALSE){
-    X = NULL
-  }
-  
-  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score))
-  
-}
+source("data_generating_process.R")
 
 N_VAR=20
 N_CUSTOMER=100000
@@ -145,35 +58,35 @@ churn_pred <- pmin(pmax(churn_pred, 0.05), 0.95)
 treat_prob <- churn_pred
 exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
 
-# Second response model (probit)
-response_model2 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="probit"))
-churn_pred2 <- predict(response_model2, X, type = "response")
-ModelMetrics::auc(exp$none$y, churn_pred)
-churn_pred2 <- pmin(pmax(churn_pred, 0.05), 0.95)
-treat_prob2 <- churn_pred2
-exp$individual2 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob2)
+# # Second response model (probit)
+# response_model2 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="probit"))
+# churn_pred2 <- predict(response_model2, X, type = "response")
+# ModelMetrics::auc(exp$none$y, churn_pred)
+# churn_pred2 <- pmin(pmax(churn_pred, 0.05), 0.95)
+# treat_prob2 <- churn_pred2
+# exp$individual2 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob2)
+# 
+# # Third response model (cauchit)
+# response_model3 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cauchit"))
+# churn_pred3 <- predict(response_model3, X, type = "response")
+# ModelMetrics::auc(exp$none$y, churn_pred)
+# churn_pred3 <- pmin(pmax(churn_pred, 0.05), 0.95)
+# treat_prob3 <- churn_pred3
+# exp$individual3 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob3)
+# 
+# # Fourth response model (cloglog; complementary log-log)
+# response_model4 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cloglog"))
+# churn_pred4 <- predict(response_model4, X, type = "response")
+# ModelMetrics::auc(exp$none$y, churn_pred)
+# churn_pred4 <- pmin(pmax(churn_pred, 0.05), 0.95)
+# treat_prob4 <- churn_pred4
+# exp$individual4 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob4)
 
-# Third response model (cauchit)
-response_model3 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cauchit"))
-churn_pred3 <- predict(response_model3, X, type = "response")
-ModelMetrics::auc(exp$none$y, churn_pred)
-churn_pred3 <- pmin(pmax(churn_pred, 0.05), 0.95)
-treat_prob3 <- churn_pred3
-exp$individual3 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob3)
-
-# Fourth response model (cloglog; complementary log-log)
-response_model4 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cloglog"))
-churn_pred4 <- predict(response_model4, X, type = "response")
-ModelMetrics::auc(exp$none$y, churn_pred)
-churn_pred4 <- pmin(pmax(churn_pred, 0.05), 0.95)
-treat_prob4 <- churn_pred4
-exp$individual4 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob4)
-
-# Output influence of covariates on target variable for response models in publication-ready quality
-stargazer(response_model, type="text") # logit model
-stargazer(response_model2, type="text") # probit model
-stargazer(response_model3, type="text") # cauchit model
-stargazer(response_model4, type="text") # cloglog model
+# # Output influence of covariates on target variable for response models in publication-ready quality
+# stargazer(response_model, type="text") # logit model
+# stargazer(response_model2, type="text") # probit model
+# stargazer(response_model3, type="text") # cauchit model
+# stargazer(response_model4, type="text") # cloglog model
 
 ### Experiment outcomes ####
 EXPERIMENT_SIZE = 100000 # Number of people in experiment
@@ -183,6 +96,7 @@ CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
 cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=9)
 colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual", "individual2", "individual3", "individual4")
 
+source("costs.R")
 
 for(j in 1:length(CLV_matrix)) {
   
@@ -191,22 +105,7 @@ for(j in 1:length(CLV_matrix)) {
   
   COST_TREATMENT_VAR = 1/20*CLV # Price reduction
   COST_CHURN = CLV # Foregone profit
-  # Expected churn costs per customer
-  churn_cost <- function(y, g, COST_TREATMENT_FIX, 
-                         COST_TREATMENT_VAR, COST_CHURN){
-    total <- sum((1-g)*(1-y)) * 0 +
-      sum(g*y)         * -(COST_TREATMENT_FIX + COST_CHURN) +
-      sum(g*(1-y))     * -(COST_TREATMENT_FIX + COST_TREATMENT_VAR)+
-      sum((1-g)*y)     * -COST_CHURN
-    
-    return(total)
-    
-    #(mean(g)*               -cost_treatment_fix +
-    #mean(g)*(1-mean(y))*   -cost_treatment_var +
-    #mean(y)*               -cost_churn)*
-    #n_customer
-  }
-  
+
   # Ratio of treated
   sapply(exp, function(x)mean(x$g))
   # Churn rate
