@@ -5,6 +5,10 @@ library(SuperLearner)
 install.packages("stargazer")
 library(stargazer)
 
+if(!require("ggplot2")) install.packages("ggplot2"); library("ggplot2")
+if(!require("reshape")) install.packages("reshape"); library("reshape")
+if(!require("cowplot")) install.packages("cowplot"); library("cowplot")
+
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
 # the same coefficients
@@ -268,15 +272,44 @@ mean(exp$all$y) - mean(exp$none$y)
 # Estimated ATE
 ATE_hat <- apply(ATE,2,mean)
 ATE_hat
-boxplot(ATE)
-abline(h=mean(exp$all$y) - mean(exp$none$y),col="red")
-abline(h=median(exp$all$y) - median(exp$none$y),col="blue")
 
+ate_box <- melt(ATE)
+ate_plot <- ggplot(data = ate_box, aes(x=variable, y=value)) + 
+  geom_boxplot() + 
+  stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
+  geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
+  labs(x="Experiment design", y = "ATE") +
+  scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
+                            "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
+                                          
+  plot_grid(ate_plot) + theme(plot.background = element_rect(color = "black", size=0.7))
+                                       
+                                          
+                                          
 # T-Test for mean Difference (H0)
 t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 accepeted
 t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 accepeted
 t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0 accepeted
 
+# Test for Normal-distribution (H0)
+shapiro.test(ATE$balanced) # H0: not sig. different from normal distributon
+shapiro.test(ATE$individual_dr)
+
+plot(density(ATE$balanced))
+plot(density(ATE$individual))
+plot(density(ATE$individual_dr))
+
+# Test for equal variance (H0)
+# Group samples 
+lev_sample <- c(ATE$balanced, ATE$individual,ATE$individual_dr)
+
+
+lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
+leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance -> rejected -> ind_dr has smaller variance 
+
+                                        
+                                          
+                                          
 #### CATE Estimation####
 library(foreach)
 library(uplift)
