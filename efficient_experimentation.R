@@ -252,9 +252,16 @@ imbalanced <- list()
 individual <- list()
 
 # Repeat sampling n times
-for(i in 1:200){
+for(i in 1:500){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
+ ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X,a_0 = c(1,0),
+                                   family=binomial(),
+                                   stratify=TRUE,
+                                   SL_Q = c("SL.glm"),
+                                   SL_g = c("SL.glm"),
+                                   SL_Qr = "SL.glm",
+                                   SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
  individual[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
@@ -266,6 +273,7 @@ for(i in 1:200){
                                      SL_g = c("SL.glm"),
                                      SL_Qr = "SL.glm",
                                      SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
+
  }
 
 # True ATE
@@ -275,7 +283,7 @@ ATE_hat <- apply(ATE,2,mean)
 ATE_hat
 
 ate_box <- melt(ATE)
-ate_plot <- ggplot(data = ate_box, aes(x=variable, y=value)) + 
+ ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
   geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
@@ -283,7 +291,7 @@ ate_plot <- ggplot(data = ate_box, aes(x=variable, y=value)) +
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
                             "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
                                           
-  plot_grid(ate_plot) + theme(plot.background = element_rect(color = "black", size=0.7))
+  
                                        
                                           
                                           
