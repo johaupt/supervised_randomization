@@ -1,13 +1,14 @@
 #### Packages ####
-install.packages("drtmle")
-library(drtmle)
-library(SuperLearner)
-install.packages("stargazer")
-library(stargazer)
-
 if(!require("ggplot2")) install.packages("ggplot2"); library("ggplot2")
 if(!require("reshape")) install.packages("reshape"); library("reshape")
 if(!require("cowplot")) install.packages("cowplot"); library("cowplot")
+if(!require("car")) install.packages("car"); library("car")
+if(!require("drtmle")) install.packages("drtmle"); library("drtmle")
+if(!require("SuperLearner")) install.packages("SuperLearner"); library("SuperLearner")
+if(!require("stargazer")) install.packages("stargazer"); library("stargazer")
+if(!require("grf")) install.packages("grf"); library("grf")
+if(!require("foreach")) install.packages("foreach"); library("foreach")
+if(!require("uplift")) install.packages("uplift"); library("uplift")
 
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
@@ -251,7 +252,7 @@ imbalanced <- list()
 individual <- list()
 
 # Repeat sampling n times
-for(i in 1:500){
+for(i in 1:200){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
@@ -311,8 +312,8 @@ leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance -> rejected -> in
                                           
                                           
 #### CATE Estimation####
-library(foreach)
-library(uplift)
+
+
 # Check the MAE and especially Qini for the cost of
 # training CATE models on biased and corrected instead 
 # of 1:1 randomized data
@@ -323,7 +324,7 @@ source("t_logit.R")
 source("Qini.R")
 perf_CATE <- list()
 
-perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:100],
+perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:20],
                                               .combine = "rbind", .multicombine = TRUE) %do% {
                                                t_logit <- T_Logit(X,exp$y, exp$g,
                                                                   exp$prop_score)
@@ -333,7 +334,7 @@ perf_CATE[["t_logit"]][["balanced"]] <- foreach(exp=balanced[1:100],
                                                c("MAE" = MAE, "Qini" = Qini)
                                    }
 
-perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
+perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:20],
                                                 .combine = "rbind", .multicombine = TRUE) %do% {
                                                   t_logit <- T_Logit(X,exp$y, exp$g,
                                                                      exp$prop_score)
@@ -345,7 +346,7 @@ perf_CATE[["t_logit"]][["individual"]] <- foreach(exp=individual[1:100],
 
 # Double Robust for CATE 
 source("t_logit_DR.R")
-perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:100],
+perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:20],
                                                    .combine = "rbind", .multicombine = TRUE) %do% {
                                                      t_logit_dr <- T_Logit_DR(X,exp$y, exp$g,
                                                                            exp$prop_score)
@@ -357,7 +358,7 @@ perf_CATE[["t_logit_DR"]][["balanced"]] <- foreach(exp=balanced[1:100],
 
 
 
-perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:100],
+perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:20],
                                                      .combine = "rbind", .multicombine = TRUE) %do% {
                                                        t_logit_dr <- T_Logit_DR(X,exp$y, exp$g,
                                                                              exp$prop_score)
@@ -369,8 +370,7 @@ perf_CATE[["t_logit_DR"]][["individual"]] <- foreach(exp=individual[1:100],
 
 
 ## Causal Forest ####
-library(causalTree)
-library(grf)
+
 # Build causal trees based on balanced and efficient experiments
 # and compare mean absolute error and Qini score
 # TODO: The ATE is again a competitive predictor. That's 
@@ -379,7 +379,7 @@ library(grf)
 MTRY=5
 NUM.TREES=1000
 
-perf_CATE[["CF"]][["balanced"]] <- foreach(exp=balanced[1:100],
+perf_CATE[["CF"]][["balanced"]] <- foreach(exp=balanced[1:20],
                                  .combine="rbind",.multicombine=TRUE) %do%{
 cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                  W.hat = exp$prop_score,
@@ -392,7 +392,7 @@ c("MAE"=mean(abs(exp$tau - tau_hat)[,1]),
   "Qini"=qini_score(tau_hat[,1], exp$y, exp$g))
 }
 
-perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:100],
+perf_CATE[["CF"]][["individual"]] <- foreach(exp=individual[1:20],
                                    .combine="rbind",.multicombine=TRUE) %do%{
   cf <- grf::causal_forest(X=X,Y=exp$y, W=exp$g,
                            W.hat = exp$prop_score,
