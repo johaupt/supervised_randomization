@@ -378,5 +378,3 @@ mean(abs(exp$tau - ATE_hat["balanced"])[,1])
 res <- lapply(perf_CATE, lapply, function(x) colMeans(x))
 data.frame(res)
 
-
-
