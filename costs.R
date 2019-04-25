@@ -27,11 +27,11 @@ catalogue_profit <- function(y, g, contact_cost, offer_cost=0, value){
     # Not treated/no purchase
     sum((1-g)*(1-y)) * 0 +
     # Treated/purchase
-    sum(g*y)         * (basket_value - contact_cost) +
+    sum(g*y)         * (value - contact_cost) +
     # Treated/no purchase
     sum(g*(1-y))     * (-contact_cost)+
     # Not treated/purchase
-    sum((1-g)*y)     * (basket_value)
+    sum((1-g)*y)     * (value)
   
   return(total)
 }
