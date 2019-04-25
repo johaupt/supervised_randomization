@@ -1,7 +1,7 @@
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
 # the same coefficients
-expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL){
+expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,DGP="nonlinear"){
   ###
   # n_var (int): Number of variables
   # model (str): 'regression' or binary 'classification'
@@ -18,7 +18,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL){
   
   return(list("beta_zero"=beta_zero, "beta"=beta, "beta_x2"=beta_x2, 
               "beta_tau"=beta_tau, "tau_zero" = tau_zero,
-              "mode"=mode))
+              "mode"=mode,"DGP"=DGP))
   
 }
 
@@ -41,6 +41,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
   beta_tau = expControl$beta_tau
   tau_zero = expControl$tau_zero
   mode = expControl$mode
+  DGP = expControl$DGP
   
   logit <- function(x) 1/(1+exp(-x))
   
@@ -59,6 +60,10 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
     }
   }
   
+  if(DGP %in% c("linear", "nonlinear")){
+  
+    if(DGP=="linear"){
+    
   if(mode %in% c('regression','classification')){
     
     if(mode == "regression"){
@@ -80,7 +85,36 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
     }
   }else{
     stop("Only mode 'classification' or 'regression' currently implemented")
-  }
+  } 
+    }
+  
+      if(DGP=="nonlinear"){
+        
+        if(mode %in% c('regression','classification')){
+          
+          if(mode == "regression"){
+            tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
+            y = beta_zero + X%*%beta + g*tau + rnorm(n_obs, 0, 0.5)
+          }
+          
+          if(mode == "classification"){
+            tau = tau_zero + X[,c(2,4,6,16,18)]%*%beta_tau[c(2,4,6,16,18)] + sin(X[,-c(2,4,6,16,18)])%*%beta_tau[-c(2,4,6,16,18)] + rnorm(n_obs, 0, 0.01)
+            
+            y = beta_zero + X[,c(1,3,5,7)]%*%beta[c(1,3,5,7)] + sin(X[,-c(1,3,5,7)])%*%beta[-c(1,3,5,7)] + rnorm(n_obs, 0, 0.5)
+            
+            y0 = logit(y)
+            y1 = logit(y+tau)
+            tau = y1-y0
+            
+            y = logit(y+g*tau)
+            y = as.numeric(y>=0.5)
+          }
+        }else{
+          stop("Only mode 'classification' or 'regression' currently implemented")
+        } 
+      }
+      } else{ stop("Choose between 'linear' or 'nonlinear'")}
+        
   
   if(X_out==FALSE){
     X = NULL
