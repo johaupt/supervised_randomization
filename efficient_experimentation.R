@@ -24,8 +24,8 @@ X_Customers <- sapply(1:N_VAR, function(x)rnorm(N_CUSTOMER, mean = 0, sd=1))
 X <- data.frame(X_Customers)
 
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -1.75,  # >0 indicates more than 50% purchasers
-                      tau_zero =   0.75 # >0 indicates positive treatment effect ,DGP="nonlinear")
-)
+                      tau_zero =   0.75, # >0 indicates positive treatment effect)
+                      DGP="nonlinear")
 
 
 #### Run experiments ####
