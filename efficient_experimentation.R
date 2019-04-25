@@ -92,11 +92,11 @@ EXPERIMENT_SIZE = 1e5 # Number of people in experiment
 CONTACT_COST = 2 # Contact costs
 
 CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
-cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=9)
+cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=6)
 colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual")
 
 source("costs.R")
-cost <- catelogue_profit
+cost <- catalogue_profit
 
 for(j in 1:length(CLV_matrix)) {
   
