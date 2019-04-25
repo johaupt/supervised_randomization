@@ -1,19 +1,23 @@
 #### Experiment Functions ####
 # Define the experiment to be able to run it several times with 
 # the same coefficients
-expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,DGP="nonlinear"){
+
+expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,DGP="nonlinear",random_state=NULL){
+
   ###
   # n_var (int): Number of variables
   # model (str): 'regression' or binary 'classification'
   # tau_zero (float): Homogeneous/baseline treatment effect
   # beta_zero (float): Response constant
   ###
+  if(!is.null(random_state)) set.seed(random_state)
+  
   beta_zero = ifelse(is.null(beta_zero),0,beta_zero)
   beta = rnorm(n_var, mean = 0, sd = 0.2)
   beta_x2 = rnorm(n_var, mean = 0, sd = 0.2)
   beta_tau = rnorm(n_var, mean = 0, sd = 0.2)
   if(is.null(tau_zero)){
-    tau_zero = rnorm(1, mean=-0.1, sd=0.01)
+    tau_zero = rnorm(1, mean=0, sd=0.01)
   }
   
   return(list("beta_zero"=beta_zero, "beta"=beta, "beta_x2"=beta_x2, 
@@ -24,7 +28,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,D
 
 # Create data given the data generating process defined in 
 # the experiment control object
-do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
+do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, random_state=NULL){
   ###
   # X (array):
   #    Matrix of observations
@@ -45,6 +49,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
   
   logit <- function(x) 1/(1+exp(-x))
   
+  # X needs to be a matrix for calculation
   if(!"matrix" %in% class(X)){
     X <- as.matrix(X)
   }
@@ -60,21 +65,31 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE){
     }
   }
   
+
+  if(!is.null(random_state)) set.seed(random_state)
   if(DGP %in% c("linear", "nonlinear")){
   
     if(DGP=="linear"){
     
+
+
+  
+
   if(mode %in% c('regression','classification')){
-    
+  
+      
     if(mode == "regression"){
+      # Functional form of treatment DGP
       tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
+      # Functional form of the response DGP
       y = beta_zero + X%*%beta + g*tau + rnorm(n_obs, 0, 0.5)
     }
     
     if(mode == "classification"){
-      tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.01)
-      
-      y = beta_zero + X%*%beta + rnorm(n_obs, 0, 0.5)
+      # Functional form of treatment DGP
+      tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.1)
+      # Functional form of the response DGP
+      y = beta_zero + X%*%beta + rnorm(n_obs, 0, 1)
       
       y0 = logit(y)
       y1 = logit(y+tau)
