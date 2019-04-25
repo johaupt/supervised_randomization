@@ -27,7 +27,7 @@ X_Customers <- data.frame(X_Customers)
 #       Would produce only the in-sample treatment effect (-> reject inference problem)
 X <- X_Customers[sample(1:N_CUSTOMER, size = N_CUSTOMER*RATIO_SAMPLE, replace = FALSE),]
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", 
-                      beta_zero=-0.6, tau_zero = -0.05)
+                      beta_zero=-0.6, tau_zero = -0.05,DGP="nonlinear")
 
 #### Run experiments ####
 exp <- list()
@@ -151,7 +151,7 @@ imbalanced <- list()
 individual <- list()
 
 # Repeat sampling n times
-for(i in 1:500){
+for(i in 1:200){
  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X,a_0 = c(1,0),
@@ -318,3 +318,8 @@ mean(abs(exp$tau - ATE_hat["balanced"])[,1])
 res <- lapply(perf_CATE, lapply, function(x) colMeans(x))
 data.frame(res)
 
+t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
+t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)
+
+t.test(perf_CATE$t_logit$individual,perf_CATE$t_logit_DR$individual)
+t.test(perf_CATE$t_logit_DR$individual,perf_CATE$CF$individual)
