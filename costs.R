@@ -1,10 +1,9 @@
-#### Churn costs per customer ####
-churn_cost <- function(y, g, COST_TREATMENT_FIX, 
-                       COST_TREATMENT_VAR, COST_CHURN){
+#### Churn costs ####
+churn_cost <- function(y, g, contact_cost, offer_cost, customer_value){
   total <- sum((1-g)*(1-y)) * 0 +
-    sum(g*y)         * -(COST_TREATMENT_FIX + COST_CHURN) +
-    sum(g*(1-y))     * -(COST_TREATMENT_FIX + COST_TREATMENT_VAR)+
-    sum((1-g)*y)     * -COST_CHURN
+    sum(g*y)         * -(contact_cost + customer_value) +
+    sum(g*(1-y))     * -(contact_cost + offer_cost)+
+    sum((1-g)*y)     * -customer_value
   
   return(total)
   
@@ -14,19 +13,18 @@ churn_cost <- function(y, g, COST_TREATMENT_FIX,
   #n_customer
 }
 
-#### Catalogue Campaign Profit per customer ####
-# Expected churn costs per customer
-catalogue_cost <- function(y, g, COST_TREATMENT_FIX, 
-                       COST_TREATMENT_VAR, COST_CHURN){
-  total <- sum((1-g)*(1-y)) * 0 +
-    sum(g*y)         * -(COST_TREATMENT_FIX + COST_CHURN) +
-    sum(g*(1-y))     * -(COST_TREATMENT_FIX + COST_TREATMENT_VAR)+
-    sum((1-g)*y)     * -COST_CHURN
+#### Catalogue Campaign Profit####
+
+catalogue_profit <- function(y, g, contact_cost, basket_value){
+  total <- 
+    # Not treated/no purchase
+    sum((1-g)*(1-y)) * 0 +
+    # Treated/purchase
+    sum(g*y)         * (basket_value - contact_cost) +
+    # Treated/no purchase
+    sum(g*(1-y))     * (-contact_cost)+
+    # Not treated/purchase
+    sum((1-g)*y)     * (basket_value)
   
   return(total)
-  
-  #(mean(g)*               -cost_treatment_fix +
-  #mean(g)*(1-mean(y))*   -cost_treatment_var +
-  #mean(y)*               -cost_churn)*
-  #n_customer
 }
