@@ -90,21 +90,19 @@ exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob
 ### Experiment outcomes ####
 EXPERIMENT_SIZE = 1e5 # Number of people in experiment
 CONTACT_COST = 2 # Contact costs
+OFFER_COST = 0 #1/20*CLV # Price reduction
 
-CLV_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
-cost_all <- matrix(NA,nrow=length(CLV_matrix),ncol=6)
+VALUE_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
+cost_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
 colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual")
 
 source("costs.R")
 cost <- catalogue_profit
 
-for(j in 1:length(CLV_matrix)) {
+for(j in 1:length(VALUE_matrix)) {
   
-  CLV = CLV_matrix[j] # Customer lifetime value
+  VALUE = VALUE_matrix[j] # Customer lifetime value
   
-  
-  COST_TREATMENT_VAR = 1/20*CLV # Price reduction
-  COST_CHURN = CLV # Foregone profit
 
   # Ratio of treated
   sapply(exp, function(x)mean(x$g))
@@ -113,20 +111,20 @@ for(j in 1:length(CLV_matrix)) {
   # Expected outcome per customer (max. 0, higher is better)
   sapply(exp[c("none","all","balanced","imbalanced","individual")], 
          function(A) cost(A$y, A$g, 
-                                COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN))
+                                contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
   
   # Churn costs per scenario and unit of observation
   sapply(exp[c("none","all","balanced","imbalanced","individual")],
          function(B) cost(B$y, B$g, 
-                                COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN) / EXPERIMENT_SIZE)
+                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
   
-  churn_cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
+  cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
                                           function(B) cost(B$y, B$g, 
-                                                                 COST_TREATMENT_FIX, COST_TREATMENT_VAR, COST_CHURN) / EXPERIMENT_SIZE))
+                                                           contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
   
   
-  cost_all[j,1] <- CLV_matrix[j]
-  cost_all[j,c(2:ncol(cost_all))] <- churn_cost_scenario 
+  cost_all[j,1] <- VALUE_matrix[j]
+  cost_all[j,c(2:ncol(cost_all))] <- cost_scenario 
   
 }
 
