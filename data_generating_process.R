@@ -67,7 +67,8 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   
 
   if(!is.null(random_state)) set.seed(random_state)
-  if(DGP %in% c("linear", "nonlinear")){
+  
+  if(DGP %in% c('linear', 'nonlinear')){
   
     if(DGP=="linear"){
     
@@ -97,6 +98,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
       
       y = logit(y+g*tau)
       y = as.numeric(y>=0.5)
+      class = "linear"
     }
   }else{
     stop("Only mode 'classification' or 'regression' currently implemented")
@@ -123,6 +125,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
             
             y = logit(y+g*tau)
             y = as.numeric(y>=0.5)
+            class = "nonlinear"
           }
         }else{
           stop("Only mode 'classification' or 'regression' currently implemented")
@@ -135,6 +138,6 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
     X = NULL
   }
   
-  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score))
+  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score, "class"=class))
   
 }
