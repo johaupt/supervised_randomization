@@ -139,6 +139,8 @@ response_model <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="logit
 churn_pred <- predict(response_model, X, type = "response")
 treat_prob <- pmin(pmax(churn_pred, 0.05), 0.95)
 
+none <- list()
+all <- list()
 balanced <- list()
 imbalanced <- list()
 individual <- list()
@@ -148,12 +150,14 @@ individual <- list()
 
 set.seed(123)
 
-NO_EXPERIMENT_ITER = 50
+NO_EXPERIMENT_ITER = 100
 
 for(i in 1:NO_EXPERIMENT_ITER){
   balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
   imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
   individual[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
+  none[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0)
+  all[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 1)
 }
 
 
@@ -189,12 +193,14 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                       SL_g = c("SL.glm"),
                                       SL_Qr = "SL.glm",
                                       SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
+  # True ATE
+  ATE[i,"true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
 }
 
 
 
-# True ATE
-mean(exp$all$y) - mean(exp$none$y)
+
+
 # Estimated ATE
 ATE_hat <- apply(ATE,2,mean)
 ATE_hat
@@ -203,7 +209,7 @@ ate_box <- melt(ATE)
  ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
-  geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
+  geom_hline(aes(yintercept=ATE_hat[6]),colour="red") +
   labs(x="Experiment design", y = "ATE") +
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
                             "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
