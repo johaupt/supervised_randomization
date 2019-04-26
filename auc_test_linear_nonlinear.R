@@ -1,5 +1,13 @@
-M = 200
+M = 100
 auc_list <- matrix(NA,nrow=M,ncol=2)
+N_VAR=20
+N_CUSTOMER=1e5
+#RATIO_SAMPLE=0.05
+
+# Full set of customers
+X_Customers <- sapply(1:N_VAR, function(x)rnorm(N_CUSTOMER, mean = 0, sd=1))
+X <- data.frame(X_Customers)
+
 
 for(i in 1:M){
 
