@@ -1,5 +1,6 @@
-M = 100
+M = 50
 auc_list <- matrix(NA,nrow=M,ncol=2)
+
 N_VAR=20
 N_CUSTOMER=1e5
 #RATIO_SAMPLE=0.05
@@ -43,4 +44,5 @@ auc_list[i,2] <-  ModelMetrics::auc(exp$none$y, churn_pred)
 
 }
 
+colnames(auc_list) <- c("nonlinear DGP", "linear DGP")
 summary(auc_list)
