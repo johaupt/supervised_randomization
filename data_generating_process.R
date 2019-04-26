@@ -117,7 +117,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
           if(mode == "classification"){
             tau = tau_zero + (2+cos(X[,c(2,4,6,16,18)])%*%beta_tau[c(2,4,6,16,18)]) + sin(X[,-c(2,4,6,16,18)])%*%beta_tau[-c(2,4,6,16,18)] + rnorm(n_obs, 0, 0.01)
             
-            y = beta_zero +  sin(X[,-c(1,3,5,7)])%*%beta[-c(1,3,5,7)] + rnorm(n_obs, 0, 0.5)
+            y = beta_zero +  sin(X[,-c(1,3,5,7)])%*%beta[-c(1,3,5,7)] + rnorm(n_obs, 0, 1)
             
             y0 = logit(y)
             y1 = logit(y+tau)
