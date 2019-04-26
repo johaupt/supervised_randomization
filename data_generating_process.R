@@ -1,4 +1,11 @@
 #### Experiment Functions ####
+# Generate a population X
+make_customers <- function(n_customer, n_var){
+    X_Customers <- sapply(1:n_var, function(x)rnorm(n_customer, mean = 0, sd=1))
+    return(data.frame(X_Customers))
+}
+
+
 # Define the experiment to be able to run it several times with 
 # the same coefficients
 
@@ -13,8 +20,8 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,D
   if(!is.null(random_state)) set.seed(random_state)
   
   beta_zero = ifelse(is.null(beta_zero),0,beta_zero)
-  beta = rnorm(n_var, mean = 0, sd = 0.2)
-  beta_x2 = rnorm(n_var, mean = 0, sd = 0.2)
+  beta = rnorm(n_var, mean = 0, sd = 1)
+  beta_x2 = rnorm(n_var, mean = 0, sd = 1)
   beta_tau = rnorm(n_var, mean = 0, sd = 0.2)
   if(is.null(tau_zero)){
     tau_zero = rnorm(1, mean=0, sd=0.01)
@@ -70,10 +77,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   if(DGP %in% c("linear", "nonlinear")){
   
     if(DGP=="linear"){
-    
 
-
-  
 
   if(mode %in% c('regression','classification')){
   
@@ -113,16 +117,16 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
           }
           
           if(mode == "classification"){
-            tau = tau_zero + X[,c(2,4,6,16,18)]%*%beta_tau[c(2,4,6,16,18)] + sin(X[,-c(2,4,6,16,18)])%*%beta_tau[-c(2,4,6,16,18)] + rnorm(n_obs, 0, 0.01)
+            tau = tau_zero + X[,seq(2,20,2)]%*%beta_tau[seq(2,20,2)] + X[,seq(2,20,2)]**2 %*%beta_tau[seq(2,20,2)] + rnorm(n_obs, 0, 0.01)
             
-            y = beta_zero + X[,c(1,3,5,7)]%*%beta[c(1,3,5,7)] + sin(X[,-c(1,3,5,7)])%*%beta[-c(1,3,5,7)] + rnorm(n_obs, 0, 0.5)
+            p_logit = beta_zero + X[,seq(1,19,2)]     %*%beta[seq(1,19,2)] + X[,seq(1,19,2)]**2     %*%beta[seq(1,19,2)] # no error, instead we sample from bernoulli distr. below
             
-            y0 = logit(y)
-            y1 = logit(y+tau)
-            tau = y1-y0
+            #y0 = logit(y)
+            #y1 = logit(y+tau)
+            #tau = y1-y0
             
-            y = logit(y+g*tau)
-            y = as.numeric(y>=0.5)
+            p = logit(p_logit+g*tau)
+            y = rbinom(length(p),1,p)
           }
         }else{
           stop("Only mode 'classification' or 'regression' currently implemented")
