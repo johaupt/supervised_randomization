@@ -12,6 +12,7 @@ if(!require("stargazer")) install.packages("stargazer"); library("stargazer")
 if(!require("grf")) install.packages("grf"); library("grf")
 if(!require("foreach")) install.packages("foreach"); library("foreach")
 if(!require("uplift")) install.packages("uplift"); library("uplift")
+if(!require("ModelMetrics")) install.packages("ModelMetrics"); library("ModelMetrics")
 
 source("data_generating_process.R")
 
@@ -26,6 +27,7 @@ X <- data.frame(X_Customers)
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -1.75,  # >0 indicates more than 50% purchasers
                       tau_zero =   0.75, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
+
 
 
 #### Run experiments ####
@@ -103,7 +105,7 @@ for(j in 1:length(VALUE_matrix)) {
   
   VALUE = VALUE_matrix[j] # Customer lifetime value
   
-
+  
   # Ratio of treated
   sapply(exp, function(x)mean(x$g))
   # Churn rate
@@ -111,7 +113,7 @@ for(j in 1:length(VALUE_matrix)) {
   # Expected outcome per customer (max. 0, higher is better)
   sapply(exp[c("none","all","balanced","imbalanced","individual")], 
          function(A) cost(A$y, A$g, 
-                                contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
+                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
   
   # Churn costs per scenario and unit of observation
   sapply(exp[c("none","all","balanced","imbalanced","individual")],
@@ -119,8 +121,8 @@ for(j in 1:length(VALUE_matrix)) {
                           contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
   
   cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
-                                          function(B) cost(B$y, B$g, 
-                                                           contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
+                                    function(B) cost(B$y, B$g, 
+                                                     contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
   
   
   cost_all[j,1] <- VALUE_matrix[j]
