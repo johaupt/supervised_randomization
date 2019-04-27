@@ -1,7 +1,8 @@
 #### Optimal threshold for targeting ####
-opt_tau <- function(offer_cost, customer_value){
+targeting_policy <- function(tau_hat, offer_cost, customer_value){
   threshold <- offer_cost/customer_value
-  return(threshold)
+  treatment <- as.numeric(tau_hat > threshold)
+  return(treatment)
 }
 
 

@@ -1,17 +1,6 @@
 #### Packages ####
 #library(pacman)
-#pacman::p_load("ggplot2","reshape","cowplot","car","drtmle","SuperLearner","stargazer","grf","foreach","uplift")
-
-if(!require("ggplot2")) install.packages("ggplot2"); library("ggplot2")
-if(!require("reshape")) install.packages("reshape"); library("reshape")
-if(!require("cowplot")) install.packages("cowplot"); library("cowplot")
-if(!require("car")) install.packages("car"); library("car")
-if(!require("drtmle")) install.packages("drtmle"); library("drtmle")
-if(!require("SuperLearner")) install.packages("SuperLearner"); library("SuperLearner")
-if(!require("stargazer")) install.packages("stargazer"); library("stargazer")
-if(!require("grf")) install.packages("grf"); library("grf")
-if(!require("foreach")) install.packages("foreach"); library("foreach")
-if(!require("uplift")) install.packages("uplift"); library("uplift")
+pacman::p_load("ggplot2","reshape","cowplot","car","drtmle","SuperLearner","grf","foreach","uplift","data.table")
 
 source("data_generating_process.R")
 
@@ -19,16 +8,38 @@ N_VAR=20
 N_CUSTOMER=1e5
 #RATIO_SAMPLE=0.05
 
-# Full set of customers
-X_Customers <- sapply(1:N_VAR, function(x)rnorm(N_CUSTOMER, mean = 0, sd=1))
-X <- data.frame(X_Customers)
-
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -1.75,  # >0 indicates more than 50% purchasers
                       tau_zero =   0.75, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
 
+#### Examplary basic churn reponse model
+# This can be any model that maps some business value to a treatment probability
+# For churn, the churn probability is an obvious candidate, but could be rescaled
+X_train  <- make_customers(N_CUSTOMER, N_VAR)
+X_test  <- make_customers(N_CUSTOMER, N_VAR)
+response_model <- glm(y~., family = binomial(link="logit"),
+                      cbind(X_train, y=do_experiment(X_train, expControl = expCtrl, prop_score = 0)$y) 
+)
+response_pred <- predict(response_model, X_test, type = "response")
+ModelMetrics::auc(do_experiment(X_test, expControl = expCtrl, prop_score = 0)$y, 
+                  response_pred)
+
+## Individual biased random treatment (based on propensity)
+map_propensity <- function(model_score, target_ratio){
+# Platt scaling
+# platt_scaler <- glm(y~prob, family=binomial(link='logit'), 
+#                     weights = ifelse(exp$none$y==1, 1/(mean(exp$none$y==1)), 1),
+#                     data = data.frame(cbind('y'=exp$none$y,'prob'=churn_pred))
+#                     )
+# treat_prob <- predict(platt_scaler, newdata=data.frame(prob=churn_pred), type='response')
+ model_score <- model_score * target_ratio/mean(model_score)
+ p_treatment <- pmin(pmax(model_score, 0.05), 0.95)
+ return(p_treatment)
+}
+
 
 #### Run experiments ####
+X <- make_customers(N_CUSTOMER, N_VAR)
 exp <- list()
 exp$none <- do_experiment(X, expControl = expCtrl, prop_score = 0)
 exp$all <- do_experiment(X, expControl = expCtrl, prop_score = 1)
@@ -36,61 +47,18 @@ exp$all <- do_experiment(X, expControl = expCtrl, prop_score = 1)
 exp$balanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
 # Conservative random treatment
 exp$imbalanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.66)
+# Supervised random treatment
+response_pred <- predict(response_model, X)
+treat_prob <- map_propensity(response_pred, target_ratio=0.66)
+exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
 # baseline
 mean(exp$none$y)
 
-#### Examplary basic churn reponse model
-# This can be any model that maps some business value to a treatment probability
-# For churn, the churn probability is an obvious candidate, but could be rescaled
-response_model <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="logit"))
-churn_pred <- predict(response_model, X, type = "response")
-ModelMetrics::auc(exp$none$y, churn_pred)
-## Individual biased random treatment (based on churn probability)
-# Platt scaling
-churn_pred <- pmin(pmax(churn_pred, 0.05), 0.95)
-# platt_scaler <- glm(y~prob, family=binomial(link='logit'), 
-#                     weights = ifelse(exp$none$y==1, 1/(mean(exp$none$y==1)), 1),
-#                     data = data.frame(cbind('y'=exp$none$y,'prob'=churn_pred))
-#                     )
-# treat_prob <- predict(platt_scaler, newdata=data.frame(prob=churn_pred), type='response')
-#treat_prob <- pmin(pmax(treat_prob, 0.1), 0.9)
-treat_prob <- churn_pred
-exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
-
-# # Second response model (probit)
-# response_model2 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="probit"))
-# churn_pred2 <- predict(response_model2, X, type = "response")
-# ModelMetrics::auc(exp$none$y, churn_pred)
-# churn_pred2 <- pmin(pmax(churn_pred, 0.05), 0.95)
-# treat_prob2 <- churn_pred2
-# exp$individual2 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob2)
-# 
-# # Third response model (cauchit)
-# response_model3 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cauchit"))
-# churn_pred3 <- predict(response_model3, X, type = "response")
-# ModelMetrics::auc(exp$none$y, churn_pred)
-# churn_pred3 <- pmin(pmax(churn_pred, 0.05), 0.95)
-# treat_prob3 <- churn_pred3
-# exp$individual3 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob3)
-# 
-# # Fourth response model (cloglog; complementary log-log)
-# response_model4 <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="cloglog"))
-# churn_pred4 <- predict(response_model4, X, type = "response")
-# ModelMetrics::auc(exp$none$y, churn_pred)
-# churn_pred4 <- pmin(pmax(churn_pred, 0.05), 0.95)
-# treat_prob4 <- churn_pred4
-# exp$individual4 <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob4)
-
-# # Output influence of covariates on target variable for response models in publication-ready quality
-# stargazer(response_model, type="text") # logit model
-# stargazer(response_model2, type="text") # probit model
-# stargazer(response_model3, type="text") # cauchit model
-# stargazer(response_model4, type="text") # cloglog model
 
 ### Experiment outcomes ####
 EXPERIMENT_SIZE = 1e5 # Number of people in experiment
 CONTACT_COST = 2 # Contact costs
-OFFER_COST = 0 #1/20*CLV # Price reduction
+OFFER_COST = 0 # Price reduction
 
 VALUE_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
 cost_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
@@ -140,21 +108,24 @@ treat_prob <- pmin(pmax(churn_pred, 0.05), 0.95)
 balanced <- list()
 imbalanced <- list()
 individual <- list()
+test <- list()
 # Repeat sampling n times
-
-
 
 set.seed(123)
 
-NO_EXPERIMENT_ITER = 50
+NO_EXPERIMENT_ITER = 10
 
 for(i in 1:NO_EXPERIMENT_ITER){
-  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
-  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.25)
-  individual[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
+  balanced[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = 0.5)
+  imbalanced[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = 0.66)
+  individual[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train), target_ratio=0.66))
+
 }
 
-
+#### Experiment Summary statistics ####
+rowMeans(sapply(balanced, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
+rowMeans(sapply(imbalanced, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
+rowMeans(sapply(individual, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
@@ -168,6 +139,11 @@ ATE <- data.frame()
 
 for(i in 1:NO_EXPERIMENT_ITER){
   ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
+
+  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
+  
+  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
+  
   ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X,a_0 = c(1,0),
                                     family=binomial(),
                                     stratify=TRUE,
@@ -175,11 +151,7 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                     SL_g = c("SL.glm"),
                                     SL_Qr = "SL.glm",
                                     SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
-  
-  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
-  
-  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
-  
+
   ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X,a_0 = c(1,0),
                                       family=binomial(),
                                       stratify=TRUE,
@@ -198,7 +170,8 @@ ATE_hat <- apply(ATE,2,mean)
 ATE_hat
 
 ate_box <- melt(ATE)
- ggplot(data = ate_box, aes(x=variable, y=value)) + 
+
+ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
   geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
@@ -206,10 +179,7 @@ ate_box <- melt(ATE)
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
                             "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
                                           
-  
-                                       
-                                          
-                                          
+
 # T-Test for mean Difference (H0)
 t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 accepeted
 t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 accepeted
@@ -232,91 +202,112 @@ lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$i
 leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance -> rejected -> ind_dr has smaller variance 
 
                                         
-                                          
-                                          
+                                    
 #### CATE Estimation####
 
-
-# Check the MAE and especially Qini for the cost of
-# training CATE models on biased and corrected instead 
-# of 1:1 randomized data
-
-# New metric can be specified here
-performance_CATE <- function(tau_score, y_true=NULL, w=NULL, tau_true=NULL){
-  #res <- data.frame("metric" = c("MAE","Qini"), "value"=NA)
-  #if(!is.null(tau_true))             res[res$metric=="MAE","value"]  <- mean(abs(tau_true - tau_score))
-  #if(!is.null(y_true) & !is.null(w)) res[res$metric=="Qini","value"] <- qini_score(tau_score, y_true, w)
-
-  res <- list()
-  if(!is.null(tau_true))  res[["MAE"]] <- mean(abs(tau_true - tau_score))
-  if(!is.null(y_true) & !is.null(w)) res[["Qini"]] <- qini_score(tau_score, y_true, w)
-  
-  return(res)
-}
-
-MTRY=5
-NUM.TREES=100
-
-
-## Two-model approach
-# TODO: Finish evaluation of two-model approach
+### Model evaluation ####
 source("t_logit.R")
 source("Qini.R")
 
+library("parallel")
+library("doParallel")
+cl <- makeCluster( max(1,detectCores()-1))
+registerDoParallel(cl)
+RNGkind("L'Ecuyer-CMRG")  
+clusterSetRNGStream(cl,iseed = 1234567)
 
+N_ITER=2
 
-exp_list <- list("balanced"=balanced, "individual"=individual)
+## Model specifics
+# CF
+MTRY=4
+NUM.TREES=500
+CI.GROUP.SIZE=1
+MIN.NODE.SIZE = 100
+SAMPLE.FRACTION = 0.3
 
-perf_CATE <- foreach(exp_setting = exp_list, .combine='list', .inorder=TRUE, .multicombine=TRUE) %:%
-               foreach(exp=exp_setting, .combine = "rbind", .multicombine = TRUE) %dopar% {
-                 #res <- data.frame()
-                 # Predictions from each model are saved in a list 'pred'
-                 pred <- list()
-                 
-                 # Split data
-                 idx_train <- sample(length(exp$y), size = floor(length(exp$y)*0.75), replace=FALSE)
-                 
-                 ## ATE baseline
-                 ate_hat <- calc_ATE(exp$y, exp$g, exp$prop_score)
-                 
-                 ## Train t-learner
-                 t_logit <- T_Logit(X[idx_train,], exp$y[idx_train], exp$g[idx_train],
-                                    exp$prop_score[idx_train])
-          
-                # Save predictions on test set in list pred
-                 pred[['t_logit']] <- unname(predict(t_logit, X[-idx_train,]))
-                 
-                 #res <- rbind(res, 
-                #       cbind("model"="t_logit", performance_CATE(tau_score=predict(t_logit, X[-idx_train,]),
-                #                                                                                   y_true=exp$y[-idx_train], w = exp$g[-idx_train], tau_true = exp$tau[-idx_train]))
-                 #      )
-                 
-                 
-                 ## Train causal forest
-                 cf <- grf::causal_forest(X=X[idx_train,],Y=exp$y[idx_train], W=exp$g[idx_train],
-                                          W.hat = exp$prop_score[idx_train],
-                                          honesty=TRUE,
-                                          num.trees=NUM.TREES, min.node.size=100, 
-                                          mtry=MTRY, sample.fraction = 0.2,
-                                          seed=123)
-               
-                 pred[['CF']] <- predict(cf, X[-idx_train,])[,1]
-                 
-                 # Calculate performance for each model
-                 res <- sapply(pred, simplify=FALSE, function(PRED) performance_CATE(tau_score= PRED,
-                                                      y_true=exp$y[-idx_train], w = exp$g[-idx_train], tau_true = exp$tau[-idx_train]))
-                 res <- melt(res)
-                 colnames(res)[match(c("L1","L2"), names(res))] <- c("model","metric")
-                 
-                 return(res)
-               }
+# Return predictions and true values for each of N sets of customers X
+model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .export = c("predict.tlearner"), .errorhandling = "pass", .packages = "data.table")%dopar%{
+  X <- make_customers(N_CUSTOMER, N_VAR)
+  idx_split <- ceiling(N_CUSTOMER/2)
+  X_train <- X[1:idx_split,]
+  X_test <- X[(idx_split+1):nrow(X),]
+  
+  exp <- list(
+  "balanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.5),
+  "imbalanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.66),
+  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train), target_ratio=0.66))
+  )
+  
+  # Predictions from each model are saved in a list 'pred'
+  pred <- list()
+  
+  for(rand_scheme in names(exp)){
+  ## ATE baseline
+  ate_hat <- calc_ATE(exp[[rand_scheme]]$y, exp[[rand_scheme]]$g, exp[[rand_scheme]]$prop_score)
+  pred[[paste0("ATE_",rand_scheme)]] <- rep(ate_hat, times = nrow(X_test) ) 
+  
+  ## Train t-learner
+  t_logit <- T_Logit(X_train, exp[[rand_scheme]]$y, exp[[rand_scheme]]$g,
+                     exp[[rand_scheme]]$prop_score)
+  
+  # Save predictions on test set in list pred
+  pred[[paste0('t_logit_',rand_scheme)]] <- unname(predict(t_logit, X_test))
+  
+  ## Train causal forest
+  cf <- grf::causal_forest(X=X_train,Y=exp[[rand_scheme]]$y, W=exp[[rand_scheme]]$g,
+                           W.hat = exp[[rand_scheme]]$prop_score,
+                           honesty=TRUE,
+                           ci.group.size = CI.GROUP.SIZE,
+                           num.trees=NUM.TREES, min.node.size=MIN.NODE.SIZE, 
+                           mtry=MTRY, sample.fraction = SAMPLE.FRACTION)
+  
+  pred[[paste0('CF_', rand_scheme)]] <- predict(cf, X_test)[,1]
+  }
+  pred <- as.data.table(pred)
+  
+  test <- do_experiment(X_test, expControl = expCtrl, prop_score = 0.5)
+  
+  return(list("pred"=pred, "true"=test))
+}
 
-# Calculate mean performance
-names(perf_CATE) <- names(exp_list)
+saveRDS(model_library, "../ICIS19/model_library.rds")
 
-melt(sapply(perf_CATE, function(x) tapply(x$value, INDEX=list(x$model, x$metric), mean), simplify=FALSE))
+#### Calculate performance for each model ####
+# New metric can be specified here
+performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, tau_true=NULL, value_cost_ratio=NULL){
+  #res <- data.frame("metric" = c("MAE","Qini"), "value"=NA)
+  #if(!is.null(tau_true))             res[res$metric=="MAE","value"]  <- mean(abs(tau_true - tau_score))
+  #if(!is.null(y_true) & !is.null(w)) res[res$metric=="Qini","value"] <- qini_score(tau_score, y_true, w)
+  
+  res <- list()
+  if(!is.null(tau_true))  res[["MAE"]] <- mean(abs(tau_true - tau_score))
+  if(!is.null(y_true) & !is.null(w)) res[["Qini"]] <- qini_score(scores = tau_score, Y = y_true, W = w, p_treatment = prop_score)
+  if(!is.null(value_cost_ratio)){
+    for(ratio in value_cost_ratio){
+      res[[paste0("profit_",ratio)]] <- cost()
+    }
+  }
+  
+  return(as.data.table(res))
+}
 
-sapply(perf_CATE, function(x) tapply(x$value, INDEX=list(x$model, x$metric), sd), simplify=FALSE)
+# Calculate performance per iteration
+res <- lapply(model_library, function(ITER) lapply(ITER$pred, function(PRED){
+  performance_CATE(tau_score= PRED,
+                   y_true=ITER$true$y, w = ITER$true$g, prop_score = ITER$true$prop_score, tau_true = ITER$true$tau)
+} ))
+
+# Combine models into one data table per iteration
+res <- lapply(res, function(x) rbindlist(x,idcol="model"))#, keep.rownames="model"))
+# Combine iterations into one data table
+res <- rbindlist(res, idcol="iter")
+# Restructure to long format
+res <- melt(res, id.vars = c("model","iter"), variable.name = "metric")
+# Calculate summary statistics over iterations
+res <- res[,.("perf_mean" = mean(value), "perf_sd" = sd(value)),by=.(model, metric)]
+setorder(res, metric,model)
+
 
 t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
 t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)
