@@ -20,7 +20,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,D
   if(!is.null(random_state)) set.seed(random_state)
   
   beta_zero = ifelse(is.null(beta_zero),0,beta_zero)
-  beta = rnorm(n_var, mean = 0, sd = 1)
+  beta = rnorm(n_var, mean = 0, sd = 0.5)
   beta_x2 = rnorm(n_var, mean = 0, sd = 1)
   beta_tau = rnorm(n_var, mean = 0, sd = 0.2)
   if(is.null(tau_zero)){
@@ -74,7 +74,8 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   
 
   if(!is.null(random_state)) set.seed(random_state)
-  if(DGP %in% c("linear", "nonlinear")){
+  
+  if(DGP %in% c('linear', 'nonlinear')){
   
     if(DGP=="linear"){
 
@@ -91,16 +92,17 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
     
     if(mode == "classification"){
       # Functional form of treatment DGP
-      tau = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.1)
+      tau_logit = tau_zero + X%*%beta_tau + rnorm(n_obs, 0, 0.1)
       # Functional form of the response DGP
-      y = beta_zero + X%*%beta + rnorm(n_obs, 0, 1)
+      p_logit = beta_zero + X%*%beta + rnorm(n_obs, 0, 1)
       
-      y0 = logit(y)
-      y1 = logit(y+tau)
+      y0 = logit(p_logit)
+      y1 = logit(p_logit+tau_logit)
       tau = y1-y0
       
-      y = logit(y+g*tau)
-      y = as.numeric(y>=0.5)
+      p = logit(p_logit+g*tau_logit)
+      y = rbinom(length(p),1,p)
+      class = "linear"
     }
   }else{
     stop("Only mode 'classification' or 'regression' currently implemented")
@@ -117,16 +119,21 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
           }
           
           if(mode == "classification"){
-            tau = tau_zero + X[,seq(2,20,2)]%*%beta_tau[seq(2,20,2)] + X[,seq(2,20,2)]**2 %*%beta_tau[seq(2,20,2)] + rnorm(n_obs, 0, 0.01)
+
+            tau_logit = tau_zero + sin(X[,seq(2,20,2)])%*%beta_tau[seq(2,20,2)]# + rnorm(n_obs, 0, 0.01) #(2+cos(X[,seq(2,20,2)])%*%beta_tau[seq(2,20,2)]) +
             
-            p_logit = beta_zero + X[,seq(1,19,2)]     %*%beta[seq(1,19,2)] + X[,seq(1,19,2)]**2     %*%beta[seq(1,19,2)] # no error, instead we sample from bernoulli distr. below
+            p_logit = beta_zero +  sin(X[,seq(1,19,2)])%*%beta[seq(1,19,2)] + sin(X[,seq(2,20,2)])%*%beta_tau[seq(2,20,2)]
+            #p_logit = beta_zero +  X[,seq(1,19,2)]%*%beta[seq(1,19,2)] + abs(X[,seq(1,19,2)]) %*% beta[seq(1,19,2)] + X[,seq(2,20,2)]%*%beta_tau[seq(2,20,2)]
+
+            y0 = logit(p_logit)
+            y1 = logit(p_logit+tau_logit)
+            tau = y1-y0
             
-            #y0 = logit(y)
-            #y1 = logit(y+tau)
-            #tau = y1-y0
-            
-            p = logit(p_logit+g*tau)
+            p = logit(p_logit+g*tau_logit)
             y = rbinom(length(p),1,p)
+
+            class = "nonlinear"
+
           }
         }else{
           stop("Only mode 'classification' or 'regression' currently implemented")
@@ -139,6 +146,6 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
     X = NULL
   }
   
-  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score))
+  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score, "class"=class))
   
 }

@@ -1,15 +1,16 @@
 #### Packages ####
 #library(pacman)
+
 pacman::p_load("ggplot2","reshape","cowplot","car","drtmle","SuperLearner","grf","foreach","uplift","data.table")
 
 source("data_generating_process.R")
 
 N_VAR=20
-N_CUSTOMER=1e5
+N_CUSTOMER=100000
 #RATIO_SAMPLE=0.05
 
-expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -1.75,  # >0 indicates more than 50% purchasers
-                      tau_zero =   0.75, # >0 indicates positive treatment effect)
+expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  # >0 indicates more than 50% purchasers
+                      tau_zero =   0.8, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
 
 #### Examplary basic churn reponse model
@@ -25,34 +26,28 @@ ModelMetrics::auc(do_experiment(X_test, expControl = expCtrl, prop_score = 0)$y,
                   response_pred)
 
 ## Individual biased random treatment (based on propensity)
-map_propensity <- function(model_score, target_ratio){
+map_propensity <- function(model_score, target_ratio, groups=9){
 # Platt scaling
 # platt_scaler <- glm(y~prob, family=binomial(link='logit'), 
 #                     weights = ifelse(exp$none$y==1, 1/(mean(exp$none$y==1)), 1),
 #                     data = data.frame(cbind('y'=exp$none$y,'prob'=churn_pred))
 #                     )
 # treat_prob <- predict(platt_scaler, newdata=data.frame(prob=churn_pred), type='response')
- model_score <- model_score * target_ratio/mean(model_score)
- p_treatment <- pmin(pmax(model_score, 0.05), 0.95)
- return(p_treatment)
+  # Cut into groups based on the score quantiles
+  model_score <- cut(model_score,breaks=quantile(model_score,seq(0,1,1/groups)),labels=FALSE, include.lowest = TRUE)-1
+
+  # Adjust to expected target ratio by shifting min or max
+  if(target_ratio<=0.5){
+    new_max <- 2*target_ratio - 0.05
+    model_score <- 0.05 + model_score* (new_max-0.05)/(groups-1)
+  }
+  if(target_ratio>0.5){
+    new_min <- 2*target_ratio - 0.95
+    model_score <- new_min + model_score* (0.95-new_min)/(groups-1)
+  }
+
+ return(model_score)
 }
-
-
-#### Run experiments ####
-X <- make_customers(N_CUSTOMER, N_VAR)
-exp <- list()
-exp$none <- do_experiment(X, expControl = expCtrl, prop_score = 0)
-exp$all <- do_experiment(X, expControl = expCtrl, prop_score = 1)
-# Balanced random treatment
-exp$balanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
-# Conservative random treatment
-exp$imbalanced <- do_experiment(X, expControl = expCtrl, prop_score = 0.66)
-# Supervised random treatment
-response_pred <- predict(response_model, X)
-treat_prob <- map_propensity(response_pred, target_ratio=0.66)
-exp$individual <- do_experiment(X, expControl = expCtrl, prop_score = treat_prob)
-# baseline
-mean(exp$none$y)
 
 
 ### Experiment outcomes ####
@@ -71,7 +66,7 @@ for(j in 1:length(VALUE_matrix)) {
   
   VALUE = VALUE_matrix[j] # Customer lifetime value
   
-
+  
   # Ratio of treated
   sapply(exp, function(x)mean(x$g))
   # Churn rate
@@ -79,7 +74,7 @@ for(j in 1:length(VALUE_matrix)) {
   # Expected outcome per customer (max. 0, higher is better)
   sapply(exp[c("none","all","balanced","imbalanced","individual")], 
          function(A) cost(A$y, A$g, 
-                                contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
+                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
   
   # Churn costs per scenario and unit of observation
   sapply(exp[c("none","all","balanced","imbalanced","individual")],
@@ -87,8 +82,8 @@ for(j in 1:length(VALUE_matrix)) {
                           contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
   
   cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
-                                          function(B) cost(B$y, B$g, 
-                                                           contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
+                                    function(B) cost(B$y, B$g, 
+                                                     contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
   
   
   cost_all[j,1] <- VALUE_matrix[j]
@@ -100,32 +95,35 @@ cost_all
 
 
 #### Create experiments ####
-# Fixed response model
-response_model <- glm(y~., cbind(X, y=exp$none$y), family = binomial(link="logit"))
-churn_pred <- predict(response_model, X, type = "response")
-treat_prob <- pmin(pmax(churn_pred, 0.05), 0.95)
 
+none <- list()
+all <- list()
 balanced <- list()
 imbalanced <- list()
 individual <- list()
 test <- list()
-# Repeat sampling n times
 
 set.seed(123)
-
-NO_EXPERIMENT_ITER = 10
+# Repeat sampling n times  
+NO_EXPERIMENT_ITER = 50
 
 for(i in 1:NO_EXPERIMENT_ITER){
-  balanced[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = 0.5)
-  imbalanced[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = 0.66)
-  individual[[i]] <- do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train), target_ratio=0.66))
-
+  X <- make_customers(EXPERIMENT_SIZE, 20)
+  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
+  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.66)
+  individual[[i]] <- do_experiment(X, expControl = expCtrl, 
+                                   prop_score = map_propensity(predict(response_model, X, type="response"), 
+                                                               target_ratio=0.66, groups=20))
+  none[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0)
+  all[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 1)
 }
 
+
 #### Experiment Summary statistics ####
-rowMeans(sapply(balanced, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
-rowMeans(sapply(imbalanced, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
-rowMeans(sapply(individual, function(x) c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) ))
+for(exp in list(none, all,balanced, imbalanced, individual)){
+  temp <- sapply(exp, function(x)   c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) )
+  print(c(rowMeans(temp), "response_ratio_sd"=sd(temp["response_ratio",]) ))
+  }
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
@@ -159,12 +157,14 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                       SL_g = c("SL.glm"),
                                       SL_Qr = "SL.glm",
                                       SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
+  # True ATE
+  ATE[i,"true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
 }
 
 
 
-# True ATE
-mean(exp$all$y) - mean(exp$none$y)
+
+
 # Estimated ATE
 ATE_hat <- apply(ATE,2,mean)
 ATE_hat
@@ -174,7 +174,7 @@ ate_box <- melt(ATE)
 ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
-  geom_hline(aes(yintercept=mean(exp$all$y) - mean(exp$none$y)),colour="red") +
+  geom_hline(aes(yintercept=ATE_hat[6]),colour="red") +
   labs(x="Experiment design", y = "ATE") +
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
                             "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
@@ -186,12 +186,12 @@ t.test(ATE$balanced,ATE$individual) # iterations: 200, H0: diff in mean = 0 acce
 t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0 accepeted
 
 # Test for Normal-distribution (H0)
-shapiro.test(ATE$balanced) # H0: not sig. different from normal distributon
-shapiro.test(ATE$individual_dr)
+#shapiro.test(ATE$balanced) # H0: not sig. different from normal distributon
+#shapiro.test(ATE$individual_dr)
 
-plot(density(ATE$balanced))
-plot(density(ATE$individual))
-plot(density(ATE$individual_dr))
+#plot(density(ATE$balanced))
+#plot(density(ATE$individual))
+#plot(density(ATE$individual_dr))
 
 # Test for equal variance (H0)
 # Group samples 
@@ -199,7 +199,7 @@ lev_sample <- c(ATE$balanced, ATE$individual,ATE$individual_dr)
 
 
 lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
-leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance -> rejected -> ind_dr has smaller variance 
+leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance 
 
                                         
                                     
@@ -236,7 +236,7 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   exp <- list(
   "balanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.5),
   "imbalanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.66),
-  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train), target_ratio=0.66))
+  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train, type="response"), target_ratio=0.66))
   )
   
   # Predictions from each model are saved in a list 'pred'
@@ -309,9 +309,9 @@ res <- res[,.("perf_mean" = mean(value), "perf_sd" = sd(value)),by=.(model, metr
 setorder(res, metric,model)
 
 
-t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
-t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)
-
-t.test(perf_CATE$t_logit$individual,perf_CATE$t_logit_DR$individual)
-t.test(perf_CATE$t_logit_DR$individual,perf_CATE$CF$individual)
+# t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
+# t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)
+# 
+# t.test(perf_CATE$t_logit$individual,perf_CATE$t_logit_DR$individual)
+# t.test(perf_CATE$t_logit_DR$individual,perf_CATE$CF$individual)
 
