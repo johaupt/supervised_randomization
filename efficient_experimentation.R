@@ -1,12 +1,13 @@
 #### Packages ####
 #library(pacman)
 
-pacman::p_load("ggplot2","reshape","cowplot","car","drtmle","SuperLearner","grf","foreach","uplift","data.table")
+pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table")
 
 source("data_generating_process.R")
 
 N_VAR=20
 N_CUSTOMER=100000
+EXPERIMENT_SIZE=N_CUSTOMER
 #RATIO_SAMPLE=0.05
 
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  # >0 indicates more than 50% purchasers
@@ -50,50 +51,6 @@ map_propensity <- function(model_score, target_ratio, groups=9){
 }
 
 
-### Experiment outcomes ####
-EXPERIMENT_SIZE = 1e5 # Number of people in experiment
-CONTACT_COST = 2 # Contact costs
-OFFER_COST = 0 # Price reduction
-
-VALUE_matrix <- c(10, 50, 100, 200, 500, 1000, 5000, 10000, 50000)
-cost_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
-colnames(cost_all) <- c("CLV","none","all","balanced","imbalanced","individual")
-
-source("costs.R")
-cost <- catalogue_profit
-
-for(j in 1:length(VALUE_matrix)) {
-  
-  VALUE = VALUE_matrix[j] # Customer lifetime value
-  
-  
-  # Ratio of treated
-  sapply(exp, function(x)mean(x$g))
-  # Churn rate
-  sapply(exp, function(x)mean(x$y))
-  # Expected outcome per customer (max. 0, higher is better)
-  sapply(exp[c("none","all","balanced","imbalanced","individual")], 
-         function(A) cost(A$y, A$g, 
-                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
-  
-  # Churn costs per scenario and unit of observation
-  sapply(exp[c("none","all","balanced","imbalanced","individual")],
-         function(B) cost(B$y, B$g, 
-                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
-  
-  cost_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
-                                    function(B) cost(B$y, B$g, 
-                                                     contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
-  
-  
-  cost_all[j,1] <- VALUE_matrix[j]
-  cost_all[j,c(2:ncol(cost_all))] <- cost_scenario 
-  
-}
-
-cost_all
-
-
 #### Create experiments ####
 
 none <- list()
@@ -105,7 +62,7 @@ test <- list()
 
 set.seed(123)
 # Repeat sampling n times  
-NO_EXPERIMENT_ITER = 50
+NO_EXPERIMENT_ITER = 1
 
 for(i in 1:NO_EXPERIMENT_ITER){
   X <- make_customers(EXPERIMENT_SIZE, 20)
@@ -123,7 +80,72 @@ for(i in 1:NO_EXPERIMENT_ITER){
 for(exp in list(none, all,balanced, imbalanced, individual)){
   temp <- sapply(exp, function(x)   c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) )
   print(c(rowMeans(temp), "response_ratio_sd"=sd(temp["response_ratio",]) ))
-  }
+}
+
+#### Experiment outcomes ####
+CONTACT_COST = 2 # Contact costs
+OFFER_COST = 0 # Price reduction
+
+VALUE_matrix <- c(20, 40, 60, 80, 100, 120, 140)
+profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
+colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
+
+source("costs.R")
+profit <- catalogue_profit
+
+### TODO: Should not only relate to one experiment, but repeat for different X
+exp = list("balanced"=balanced[[1]], "imbalanced"=imbalanced[[1]], 
+           "individual"=individual[[1]], "none"=none[[1]],"all"=all[[1]])
+
+for(j in 1:length(VALUE_matrix)) {
+  
+  VALUE = VALUE_matrix[j] # Basket value
+  
+  
+  # Ratio of treated
+  sapply(exp, function(x)mean(x$g))
+  # Churn rate
+  sapply(exp, function(x)mean(x$y))
+  # Expected outcome per customer (max. 0, higher is better)
+  sapply(exp[c("none","all","balanced","imbalanced","individual")], 
+         function(A) profit(A$y, A$g, 
+                            contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
+  
+  # Churn costs per scenario and unit of observation
+  sapply(exp[c("none","all","balanced","imbalanced","individual")],
+         function(B) profit(B$y, B$g, 
+                            contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
+  
+  profit_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
+                                      function(B) profit(B$y, B$g, 
+                                                         contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
+  
+  
+  profit_all[j,1] <- VALUE_matrix[j]
+  profit_all[j,c(2:ncol(profit_all))] <- profit_scenario 
+  
+}
+
+df_profit <- as.data.frame(profit_all)
+df_profit <- df_profit[,-c(2)] # remove scenario "none"
+
+# Robustness check: Profit per customer for different basket values
+d <- melt(df_profit, id.vars="basket")
+colnames(d) <- c("Basket_value","Scenario","Profit")
+
+Fig_BasketProfit <- ggplot(d, aes(Basket_value,Profit, col=Scenario)) + 
+  geom_line() +
+  #ggtitle("Average profit per customer for different basket values") +
+  ylab("Profit per customer") + xlab("Basket value")
+
+#df_profit
+
+write.csv(df_profit, file = "TableBasketValuesScenarios2.csv")
+
+ggsave("FigureBasketProfit.pdf")
+
+df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
+print(df_profit)
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
@@ -216,7 +238,7 @@ registerDoParallel(cl)
 RNGkind("L'Ecuyer-CMRG")  
 clusterSetRNGStream(cl,iseed = 1234567)
 
-N_ITER=2
+N_ITER=100
 
 ## Model specifics
 # CF
@@ -224,7 +246,7 @@ MTRY=4
 NUM.TREES=500
 CI.GROUP.SIZE=1
 MIN.NODE.SIZE = 100
-SAMPLE.FRACTION = 0.3
+SAMPLE.FRACTION = 0.5
 
 # Return predictions and true values for each of N sets of customers X
 model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .export = c("predict.tlearner"), .errorhandling = "pass", .packages = "data.table")%dopar%{
@@ -252,7 +274,7 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
                      exp[[rand_scheme]]$prop_score)
   
   # Save predictions on test set in list pred
-  pred[[paste0('t_logit_',rand_scheme)]] <- unname(predict(t_logit, X_test))
+  pred[[paste0('t-logit_',rand_scheme)]] <- unname(predict(t_logit, X_test))
   
   ## Train causal forest
   cf <- grf::causal_forest(X=X_train,Y=exp[[rand_scheme]]$y, W=exp[[rand_scheme]]$g,
@@ -271,22 +293,21 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   return(list("pred"=pred, "true"=test))
 }
 
-saveRDS(model_library, "../ICIS19/model_library.rds")
+#saveRDS(model_library, "../ICIS19/model_library_20190428.rds")
+model_library <- readRDS("../ICIS19/model_library_20190428.rds")
 
 #### Calculate performance for each model ####
 # New metric can be specified here
-performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, tau_true=NULL, value_cost_ratio=NULL){
-  #res <- data.frame("metric" = c("MAE","Qini"), "value"=NA)
-  #if(!is.null(tau_true))             res[res$metric=="MAE","value"]  <- mean(abs(tau_true - tau_score))
-  #if(!is.null(y_true) & !is.null(w)) res[res$metric=="Qini","value"] <- qini_score(tau_score, y_true, w)
-  
+performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, tau_true=NULL){
   res <- list()
   if(!is.null(tau_true))  res[["MAE"]] <- mean(abs(tau_true - tau_score))
   if(!is.null(y_true) & !is.null(w)) res[["Qini"]] <- qini_score(scores = tau_score, Y = y_true, W = w, p_treatment = prop_score)
-  if(!is.null(value_cost_ratio)){
-    for(ratio in value_cost_ratio){
-      res[[paste0("profit_",ratio)]] <- cost()
-    }
+
+  for(basket_value in c(20,40,60,80,100,120,140)){
+    res[[paste0("profit_",basket_value)]] <- catalogue_profit(y=y_true, contact_cost = 2, offer_cost = 0, value = basket_value,
+                                 g=targeting_policy(
+                                   tau_hat = tau_score, offer_cost = 2, customer_value = basket_value)
+                                 )
   }
   
   return(as.data.table(res))
@@ -308,6 +329,21 @@ res <- melt(res, id.vars = c("model","iter"), variable.name = "metric")
 res <- res[,.("perf_mean" = mean(value), "perf_sd" = sd(value)),by=.(model, metric)]
 setorder(res, metric,model)
 
+# CATE model performance for statistical performance measures/KPIs
+res_KPI <- dcast(res[!grepl("profit",metric),], metric~model, value.var = "perf_mean")
+
+# CATE model performance for profit
+res_profit <- dcast(res[grepl("profit",metric),], metric~model, value.var = "perf_mean")
+res_profit[,"metric"] <- gsub(res_profit[,"metric"],pattern = "profit_",replacement = "")
+res_profit[,-1] <- res_profit[,-1]/(0.5*N_CUSTOMER)
+for(model in c("ATE","CF","logit")){
+res_profit[,grepl(model, colnames(res_profit))] <- res_profit[,grepl(model, colnames(res_profit))] - 
+                                                   unlist(res_profit[grepl(paste0(model,"_balanced"), colnames(res_profit))])
+}
+
+# Final tables
+res_KPI
+res_profit
 
 # t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
 # t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)
