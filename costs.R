@@ -1,7 +1,15 @@
+
 #### Optimal threshold for targeting ####
 opt_tau <- function(offer_cost, customer_value){
   threshold <- offer_cost/customer_value
   return(threshold)
+}
+
+#### Optimal binary targeting based on optimal threshold given cost setting ####
+targeting_policy <- function(tau_hat, offer_cost, customer_value){
+  threshold <- offer_cost/customer_value
+  treatment <- as.numeric(tau_hat > threshold)
+  return(treatment)
 }
 
 
@@ -21,7 +29,6 @@ churn_cost <- function(y, g, contact_cost, offer_cost, value){
 }
 
 #### Catalogue Campaign Profit ####
-
 catalogue_profit <- function(y, g, contact_cost, offer_cost=0, value){
   total <- 
     # Not treated/no purchase
