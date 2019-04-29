@@ -1,7 +1,7 @@
 #### Packages ####
 #library(pacman)
 
-pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table")
+pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table","ModelMetrics","SuperLearner")
 
 source("data_generating_process.R")
 
