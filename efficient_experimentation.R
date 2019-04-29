@@ -96,18 +96,19 @@ OFFER_COST = 0 # Price reduction
 VALUE = c(10,20,30,40,50,60,70)
 
 
-#VALUE_matrix <- rep(VALUE, 100)
-VALUE_matrix <- VALUE
-
-profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
+VALUE_matrix <- rep(VALUE, 100) # 100 iterations x 7 values
+profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6) # create empty profit matrix
 colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
 
 source("costs.R")
 profit <- catalogue_profit
 
 ### TODO: Should not only relate to one experiment, but repeat for different X
-exp = list("balanced"=balanced[[1]], "imbalanced"=imbalanced[[1]], 
-           "individual"=individual[[1]], "none"=none[[1]],"all"=all[[1]])
+for(i in 1:length(VALUE_matrix)){ # need a loop here
+
+# changed [[1]] to [[i]] to access all experiments and not just one
+exp = list("balanced"=balanced[[i]], "imbalanced"=imbalanced[[i]], 
+           "individual"=individual[[i]], "none"=none[[i]],"all"=all[[i]])
 
 for(j in 1:length(VALUE_matrix)) {
   
@@ -118,9 +119,9 @@ for(j in 1:length(VALUE_matrix)) {
   # Churn rate
   sapply(exp, function(x)mean(x$y))
   
+  # Hier müssen wir ihm sagen, dass er den Profit für alle Iterationen pro Procedure ausrechnen soll, also irgendwie mit [i]
   profit_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
-                                      function(B) profit(B$y, B$g, 
-                                                         contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / EXPERIMENT_SIZE))
+      function(B) profit(B$y, B$g, contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / EXPERIMENT_SIZE))
   
 profit_all
 
@@ -128,6 +129,8 @@ profit_all
   profit_all[j,c(2:ncol(profit_all))] <- profit_scenario 
   
 }
+}
+profit_scenario
   
 df_profit <- as.data.frame(profit_all)
 df_profit <- df_profit[,-c(2:3)] # remove scenario "none" and "all"
