@@ -65,6 +65,9 @@ set.seed(123)
 NO_EXPERIMENT_ITER = 100
 IMBALANCED_EXP_RATIO = 0.66
 
+# Repeat experiment NO_EXPERIMENT_ITER times. For each iteration:
+# - Fix the customer data X_iter and save it to list X
+# - Run experiment for each randomization procedure, save experiment in respective list
 for(i in 1:NO_EXPERIMENT_ITER){
   X_iter <- make_customers(EXPERIMENT_SIZE, 20)
   X[[i]] <- X_iter
@@ -87,10 +90,10 @@ row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
 round(t(exp_summary),3)
 
 #### Experiment outcomes ####
-CONTACT_COST = 2 # Contact costs
+CONTACT_COST = 1 # Contact costs
 OFFER_COST = 0 # Price reduction
 
-VALUE_matrix <- c(20, 40, 60, 80, 100, 120, 140)
+VALUE_matrix <- c(10,20,30,40,50,60,70) #c(20, 40, 60, 80, 100, 120, 140)
 profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
 colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
 
@@ -301,12 +304,12 @@ model_library <- readRDS("../ICIS19/model_library_20190428.rds")
 
 #### Calculate performance for each model ####
 # New metric can be specified here
-performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, tau_true=NULL){
+performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, tau_true=NULL, value){
   res <- list()
   if(!is.null(tau_true))  res[["MAE"]] <- mean(abs(tau_true - tau_score))
   if(!is.null(y_true) & !is.null(w)) res[["Qini"]] <- qini_score(scores = tau_score, Y = y_true, W = w, p_treatment = prop_score)
 
-  for(basket_value in c(20,40,60,80,100,120,140)){
+  for(basket_value in value){
     res[[paste0("profit_",basket_value)]] <- catalogue_profit(y=y_true, contact_cost = 2, offer_cost = 0, value = basket_value,
                                  g=targeting_policy(
                                    tau_hat = tau_score, offer_cost = 2, customer_value = basket_value)
@@ -319,7 +322,7 @@ performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, ta
 # Calculate performance per iteration
 res <- lapply(model_library, function(ITER) lapply(ITER$pred, function(PRED){
   performance_CATE(tau_score= PRED,
-                   y_true=ITER$true$y, w = ITER$true$g, prop_score = ITER$true$prop_score, tau_true = ITER$true$tau)
+                   y_true=ITER$true$y, w = ITER$true$g, prop_score = ITER$true$prop_score, tau_true = ITER$true$tau, value=VALUE_matrix)
 } ))
 
 # Combine models into one data table per iteration
