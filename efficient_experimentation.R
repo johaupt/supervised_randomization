@@ -1,7 +1,8 @@
 #### Packages ####
-#library(pacman)
+install.packages("pacman")
+library(pacman)
 
-pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table","ModelMetrics","SuperLearner")
+pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table","ModelMetrics","SuperLearner", "plyr")
 
 source("data_generating_process.R")
 
@@ -90,7 +91,8 @@ round(t(exp_summary),3)
 CONTACT_COST = 2 # Contact costs
 OFFER_COST = 0 # Price reduction
 
-VALUE_matrix <- c(20, 40, 60, 80, 100, 120, 140)
+#VALUE_matrix <- rep(c(20, 40, 60, 80, 100, 120, 140, 160), 100)
+VALUE_matrix <- c(20, 40, 60, 80, 100, 120, 140, 160)
 profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6)
 colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
 
@@ -105,51 +107,46 @@ for(j in 1:length(VALUE_matrix)) {
   
   VALUE = VALUE_matrix[j] # Basket value
   
-  
   # Ratio of treated
   sapply(exp, function(x)mean(x$g))
   # Churn rate
   sapply(exp, function(x)mean(x$y))
-  # Expected outcome per customer (max. 0, higher is better)
-  sapply(exp[c("none","all","balanced","imbalanced","individual")], 
-         function(A) profit(A$y, A$g, 
-                            contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE))
-  
-  # Churn costs per scenario and unit of observation
-  sapply(exp[c("none","all","balanced","imbalanced","individual")],
-         function(B) profit(B$y, B$g, 
-                            contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE)
   
   profit_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
                                       function(B) profit(B$y, B$g, 
                                                          contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE) / EXPERIMENT_SIZE))
   
-  
+profit_all
+
   profit_all[j,1] <- VALUE_matrix[j]
   profit_all[j,c(2:ncol(profit_all))] <- profit_scenario 
   
 }
-
+  
 df_profit <- as.data.frame(profit_all)
-df_profit <- df_profit[,-c(2)] # remove scenario "none"
+df_profit <- df_profit[,-c(2:3)] # remove scenario "none" and "all"
 
 # Robustness check: Profit per customer for different basket values
 d <- melt(df_profit, id.vars="basket")
-colnames(d) <- c("Basket_value","Scenario","Profit")
+d$variable <- revalue(d$variable, c("individual"="supervised"))
+colnames(d) <- c("Basket_value","Procedure","Profit")
 
-Fig_BasketProfit <- ggplot(d, aes(Basket_value,Profit, col=Scenario)) + 
+Fig_BasketProfit <- ggplot(d, aes(Basket_value,Profit, col=Procedure)) + 
   geom_line() +
   #ggtitle("Average profit per customer for different basket values") +
   ylab("Profit per customer") + xlab("Basket value")
 
-#df_profit
+write.csv(df_profit, file = "RawProfit.csv")
 
-write.csv(df_profit, file = "TableBasketValuesScenarios2.csv")
+ggsave("../FigureBasketProfit.pdf")
 
-ggsave("../ICIS19/FigureBasketProfit.pdf")
+Fig_BasketProfit
 
 df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
+df_profit <- df_profit[,-c(2:4)]
 print(df_profit)
+
+write.csv(df_profit, file = "Savings2.csv")
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
