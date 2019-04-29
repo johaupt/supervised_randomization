@@ -235,7 +235,6 @@ t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0
 # Group samples 
 lev_sample <- c(ATE$balanced, ATE$individual,ATE$individual_dr)
 
-
 lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
 leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance 
 
