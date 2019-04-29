@@ -261,8 +261,8 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   
   exp <- list(
   "balanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.5),
-  "imbalanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.66),
-  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train, type="response"), target_ratio=0.66))
+  "imbalanced" = do_experiment(X_train, expControl = expCtrl, prop_score = IMBALANCED_EXP_RATIO),
+  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train, type="response"), target_ratio=IMBALANCED_EXP_RATIO))
   )
   
   # Predictions from each model are saved in a list 'pred'
