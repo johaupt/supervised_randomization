@@ -52,7 +52,7 @@ map_propensity <- function(model_score, target_ratio, groups=9){
 
 
 #### Create experiments ####
-
+X <- list()
 none <- list()
 all <- list()
 balanced <- list()
@@ -62,25 +62,29 @@ test <- list()
 
 set.seed(123)
 # Repeat sampling n times  
-NO_EXPERIMENT_ITER = 1
+NO_EXPERIMENT_ITER = 100
+IMBALANCED_EXP_RATIO = 0.66
 
 for(i in 1:NO_EXPERIMENT_ITER){
-  X <- make_customers(EXPERIMENT_SIZE, 20)
-  balanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
-  imbalanced[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0.66)
-  individual[[i]] <- do_experiment(X, expControl = expCtrl, 
-                                   prop_score = map_propensity(predict(response_model, X, type="response"), 
-                                                               target_ratio=0.66, groups=20))
-  none[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 0)
-  all[[i]] <- do_experiment(X, expControl = expCtrl, prop_score = 1)
+  X_iter <- make_customers(EXPERIMENT_SIZE, 20)
+  X[[i]] <- X_iter
+  balanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 0.5)
+  imbalanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = IMBALANCED_EXP_RATIO)
+  individual[[i]] <- do_experiment(X_iter, expControl = expCtrl, 
+                                   prop_score = map_propensity(predict(response_model, X_iter, type="response"), 
+                                                               target_ratio=IMBALANCED_EXP_RATIO, groups=20))
+  none[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 0)
+  all[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 1)
 }
 
 
 #### Experiment Summary statistics ####
-for(exp in list(none, all,balanced, imbalanced, individual)){
-  temp <- sapply(exp, function(x)   c("response_ratio" = mean(x$y), "treatment_ratio" = mean(x$g)) )
-  print(c(rowMeans(temp), "response_ratio_sd"=sd(temp["response_ratio",]) ))
+exp_summary <- foreach(exp=list(none, all,balanced, imbalanced, individual),.combine="rbind", .inorder = TRUE)%do%{
+  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$g), "response_ratio" = mean(x$y)) )
+  c(rowMeans(temp), "response_ratio_sd"=sd(temp["response_ratio",]) )
 }
+row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
+round(t(exp_summary),3)
 
 #### Experiment outcomes ####
 CONTACT_COST = 2 # Contact costs
@@ -142,7 +146,7 @@ Fig_BasketProfit <- ggplot(d, aes(Basket_value,Profit, col=Scenario)) +
 
 write.csv(df_profit, file = "TableBasketValuesScenarios2.csv")
 
-ggsave("FigureBasketProfit.pdf")
+ggsave("../ICIS19/FigureBasketProfit.pdf")
 
 df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
 print(df_profit)
@@ -160,11 +164,11 @@ ATE <- data.frame()
 for(i in 1:NO_EXPERIMENT_ITER){
   ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
 
-  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = 0.25)
+  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = IMBALANCED_EXP_RATIO)
   
   ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
   
-  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X,a_0 = c(1,0),
+  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X[[i]],a_0 = c(1,0),
                                     family=binomial(),
                                     stratify=TRUE,
                                     SL_Q = c("SL.glm"),
@@ -172,7 +176,7 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                     SL_Qr = "SL.glm",
                                     SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
 
-  ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X,a_0 = c(1,0),
+  ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X[[i]],a_0 = c(1,0),
                                       family=binomial(),
                                       stratify=TRUE,
                                       SL_Q = c("SL.glm"),
