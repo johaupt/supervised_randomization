@@ -126,7 +126,7 @@ profit_scenario
   
 df_profit <- as.data.frame(profit_all)
 
-df_profit <- df_profit[,-c(5)] # remove procedure "none"
+#df_profit <- df_profit[,-c(5)] # remove procedure "none"
 #df_profit <- as.data.table(df_profit)
 #df_profit[, colMeans(.SD), by=basket]
 df_exhaustive <- df_profit # store all profit values from x experiments for the different profit margins
@@ -136,20 +136,20 @@ df_profit <- aggregate(.~basket, FUN=mean, data=df_profit)
 # Plot
 #d <- melt(df_profit, id.vars="basket")
 #d$variable <- revalue(d$variable, c("individual"="supervised"))
-#colnames(d) <- c("MarginalBV","Procedure","Profit")
+#colnames(d) <- c("BasketMargin","Procedure","Profit")
 
-#Fig_ProfitMarginalBV <- ggplot(d, aes(MarginalBV,Profit, col=Procedure)) + 
+#Fig_ProfitBasketMargin <- ggplot(d, aes(BasketMargin,Profit, col=Procedure)) + 
 #  geom_line() +
-#  ylab("Profit per customer") + xlab("Marginal basket value")
+#  ylab("Profit per customer") + xlab("Basket margin")
 
 write.csv(df_profit, file = "RawProfit.csv")
 
-ggsave("../FigProfitMarginalBV.pdf")
+ggsave("../FigProfitBasketMargin.pdf")
 
-Fig_ProfitMarginalBV
+Fig_ProfitBasketMargin
 
 df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
-colnames(df_profit) <- c("MarginalBV", "profit_balanced", "profit_imbalanced","profit_supervised", "profit_all", "savings_imbalanced", "savings_supervised")
+colnames(df_profit) <- c("BasketMargin", "profit_balanced", "profit_imbalanced","profit_supervised", "profit_none", "profit_all", "savings_imbalanced", "savings_supervised")
 print(df_profit)
 
 write.csv2(df_profit, file = "Table5_ProfitsSavings.csv")
