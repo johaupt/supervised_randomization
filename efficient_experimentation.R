@@ -81,7 +81,6 @@ for(i in 1:NO_EXPERIMENT_ITER){
   all[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 1)
 }
 
-
 #### Experiment Summary statistics ####
 exp_summary <- foreach(exp=list(none, all,balanced, imbalanced, individual),.combine="rbind", .inorder = TRUE)%do%{
   temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$g), "response_ratio" = mean(x$y)) )
@@ -93,69 +92,66 @@ round(t(exp_summary),3)
 #### Experiment outcomes ####
 CONTACT_COST = 1 # Contact costs
 OFFER_COST = 0 # Price reduction
-VALUE = c(10,20,30,40,50,60,70)
+VALUE = 0.5*c(20,40,60,80,100,120,140)
 
-
-VALUE_matrix <- rep(VALUE, 100) # 100 iterations x 7 values
-profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=6) # create empty profit matrix
+VALUE_matrix <- rep(VALUE, NO_EXPERIMENT_ITER) # 100 iterations x 7 values
+profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=5+1) # create empty profit matrix
 colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
 
 source("costs.R")
 profit <- catalogue_profit
 
-### TODO: Should not only relate to one experiment, but repeat for different X
-for(i in 1:length(VALUE_matrix)){ # need a loop here
+for(i in 1:NO_EXPERIMENT_ITER){
 
-# changed [[1]] to [[i]] to access all experiments and not just one
 exp = list("balanced"=balanced[[i]], "imbalanced"=imbalanced[[i]], 
            "individual"=individual[[i]], "none"=none[[i]],"all"=all[[i]])
 
-for(j in 1:length(VALUE_matrix)) {
+for(j in 1:length(VALUE)) {
   
   VALUE_iter = VALUE_matrix[j] # Basket value
   
-  # Ratio of treated
-  sapply(exp, function(x)mean(x$g))
-  # Churn rate
-  sapply(exp, function(x)mean(x$y))
-  
-  # Hier müssen wir ihm sagen, dass er den Profit für alle Iterationen pro Procedure ausrechnen soll, also irgendwie mit [i]
-  profit_scenario <- as.vector(sapply(exp[c("none","all","balanced","imbalanced","individual")],
-      function(B) profit(B$y, B$g, contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / EXPERIMENT_SIZE))
+  profit_scenario <- as.vector(sapply(
+    exp,
+    #exp[c("none","all","balanced","imbalanced","individual")],
+      function(B) profit(B$y, B$g, contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / length(B$y)))
   
 profit_all
 
-  profit_all[j,1] <- VALUE_matrix[j]
-  profit_all[j,c(2:ncol(profit_all))] <- profit_scenario 
+  profit_all[(i-1)*length(VALUE)+j,1] <- VALUE_matrix[j]
+  profit_all[(i-1)*length(VALUE)+j,c(2:ncol(profit_all))] <- profit_scenario 
   
 }
 }
 profit_scenario
   
 df_profit <- as.data.frame(profit_all)
-df_profit <- df_profit[,-c(2:3)] # remove scenario "none" and "all"
+df_profit <- df_profit[,-c(2)] # remove procedure "none"
+#df_profit <- as.data.table(df_profit)
+#df_profit[, colMeans(.SD), by=basket]
+df_exhaustive <- df_profit # store all profit values from x experiments for the different profit margins
+
+df_profit <- aggregate(.~basket, FUN=mean, data=df_profit)
 
 # Robustness check: Profit per customer for different basket values
 d <- melt(df_profit, id.vars="basket")
 d$variable <- revalue(d$variable, c("individual"="supervised"))
-colnames(d) <- c("Basket_value","Procedure","Profit")
+colnames(d) <- c("MarginalBV","Procedure","Profit")
 
-Fig_BasketProfit <- ggplot(d, aes(Basket_value,Profit, col=Procedure)) + 
-  geom_line() +
-  #ggtitle("Average profit per customer for different basket values") +
-  ylab("Profit per customer") + xlab("Basket value")
+#Fig_ProfitMarginalBV <- ggplot(d, aes(MarginalBV,Profit, col=Procedure)) + 
+#  geom_line() +
+#  ylab("Profit per customer") + xlab("Marginal basket value")
 
 write.csv(df_profit, file = "RawProfit.csv")
 
-ggsave("../FigureBasketProfit.pdf")
+ggsave("../FigProfitMarginalBV.pdf")
 
-Fig_BasketProfit
+Fig_ProfitMarginalBV
 
 df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
-df_profit <- df_profit[,-c(2:4)]
+colnames(df_profit) <- c("MarginalBV","profit_all","profit_balanced", "profit_imbalanced", "profit_supervised", "savings_imbalanced", "savings_supervised")
 print(df_profit)
 
-write.csv(df_profit, file = "Savings2.csv")
+write.csv2(df_profit, file = "Table5_ProfitsSavings.csv")
 
 ### ATE Estimation ####
 calc_ATE <- function(y, g, prop_score){
