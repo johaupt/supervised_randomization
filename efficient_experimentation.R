@@ -96,7 +96,7 @@ VALUE = 0.5*c(20,40,60,80,100,120,140)
 
 VALUE_matrix <- rep(VALUE, NO_EXPERIMENT_ITER) # 100 iterations x 7 values
 profit_all <- matrix(NA,nrow=length(VALUE_matrix),ncol=5+1) # create empty profit matrix
-colnames(profit_all) <- c("basket","none","all","balanced","imbalanced","individual")
+colnames(profit_all) <- c("basket","balanced","imbalanced","individual","none","all")
 
 source("costs.R")
 profit <- catalogue_profit
@@ -125,17 +125,18 @@ profit_all
 profit_scenario
   
 df_profit <- as.data.frame(profit_all)
-df_profit <- df_profit[,-c(2)] # remove procedure "none"
+
+df_profit <- df_profit[,-c(5)] # remove procedure "none"
 #df_profit <- as.data.table(df_profit)
 #df_profit[, colMeans(.SD), by=basket]
 df_exhaustive <- df_profit # store all profit values from x experiments for the different profit margins
 
 df_profit <- aggregate(.~basket, FUN=mean, data=df_profit)
 
-# Robustness check: Profit per customer for different basket values
-d <- melt(df_profit, id.vars="basket")
-d$variable <- revalue(d$variable, c("individual"="supervised"))
-colnames(d) <- c("MarginalBV","Procedure","Profit")
+# Plot
+#d <- melt(df_profit, id.vars="basket")
+#d$variable <- revalue(d$variable, c("individual"="supervised"))
+#colnames(d) <- c("MarginalBV","Procedure","Profit")
 
 #Fig_ProfitMarginalBV <- ggplot(d, aes(MarginalBV,Profit, col=Procedure)) + 
 #  geom_line() +
@@ -148,7 +149,7 @@ ggsave("../FigProfitMarginalBV.pdf")
 Fig_ProfitMarginalBV
 
 df_profit <- cbind(df_profit, df_profit[,c("imbalanced","individual")]-df_profit[,"balanced"])
-colnames(df_profit) <- c("MarginalBV","profit_all","profit_balanced", "profit_imbalanced", "profit_supervised", "savings_imbalanced", "savings_supervised")
+colnames(df_profit) <- c("MarginalBV", "profit_balanced", "profit_imbalanced","profit_supervised", "profit_all", "savings_imbalanced", "savings_supervised")
 print(df_profit)
 
 write.csv2(df_profit, file = "Table5_ProfitsSavings.csv")
