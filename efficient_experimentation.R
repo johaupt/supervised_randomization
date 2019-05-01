@@ -169,28 +169,28 @@ calc_ATE <- function(y, g, prop_score){
 
 ATE <- data.frame()
 
+
 for(i in 1:NO_EXPERIMENT_ITER){
   ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
-
+  
   ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = IMBALANCED_EXP_RATIO)
   
   ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
   
-  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X[[i]],a_0 = c(1,0),
-                                    family=binomial(),
-                                    stratify=TRUE,
-                                    SL_Q = c("SL.glm"),
-                                    SL_g = c("SL.glm"),
-                                    SL_Qr = "SL.glm",
-                                    SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
-
-  ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X[[i]],a_0 = c(1,0),
-                                      family=binomial(),
-                                      stratify=TRUE,
-                                      SL_Q = c("SL.glm"),
-                                      SL_g = c("SL.glm"),
-                                      SL_Qr = "SL.glm",
-                                      SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
+  
+  gn <- list()
+  gn[[1]] <- individual[[i]]$prop_score
+  gn[[2]] <- 1 - individual[[i]]$prop_score
+  
+  ATE[i,"individual_dr"] <-  ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X[[i]],a_0 = c(1,0),
+                                       family=binomial(),
+                                       stratify=TRUE,
+                                       SL_Q = c("SL.glm"),
+                                       SL_g = c("SL.glm"),
+                                       SL_Qr = "SL.glm",
+                                       SL_gr = "SL.glm",
+                                       gn=gn,
+                                       maxIter = 1),contrast=c(1,-1))$drtmle[1]
   # True ATE
   ATE[i,"true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
 }
@@ -200,19 +200,26 @@ for(i in 1:NO_EXPERIMENT_ITER){
 
 
 # Estimated ATE
-ATE_hat <- apply(ATE,2,mean)
+ATE_hat <- apply(ATE[],2,mean)
 ATE_hat
 
-ate_box <- melt(ATE)
+ATE2 <- ATE[,c(5,1,2,3,4)]
+ate_box <- melt(ATE2)
 
 ggplot(data = ate_box, aes(x=variable, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
-  geom_hline(aes(yintercept=ATE_hat[6]),colour="red") +
+  geom_hline(aes(yintercept=ATE_hat[5]),linetype="dashed") +
   labs(x="Experiment design", y = "ATE") +
   scale_x_discrete(labels=c("balanced" = "balanced", "imbalanced" = "imbalanced",
-                            "individual" = "supervised (IPW)", "individual_dr"= "supervised (DR)"))
-                                          
+                            "individual" = "supervised (IPW1)", "individual_dr"= "supervised (DR)", "true_ATE"="true ATE")) +
+  theme(axis.text.x = element_text(size=14), 
+        axis.text.y = element_text(size=14),
+        axis.title.x = element_text( size=16),
+        axis.title.y = element_text(size=16))+ 
+  
+  ylim(c(0.05,0.08))
+
 
 # T-Test for mean Difference (H0)
 t.test(ATE$balanced,ATE$imbalanced) # iterations: 200, H0: diff in mean = 0 accepeted
@@ -229,9 +236,9 @@ t.test(ATE$individual,ATE$individual_dr) # iterations: 200, H0: diff in mean = 0
 
 # Test for equal variance (H0)
 # Group samples 
-lev_sample <- c(ATE$balanced, ATE$individual,ATE$individual_dr)
+lev_sample <- c( ATE$individual,ATE$individual_dr)
 
-lev_group <- as.factor(c(rep("b", length(ATE$balanced)), rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
+lev_group <- as.factor(c(rep("ind", length(ATE$individual)),rep("ind_dr", length(ATE$individual_dr))))
 leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance 
 
                                         
