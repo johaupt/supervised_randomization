@@ -1,5 +1,5 @@
 #### Packages ####
-install.packages("pacman")
+#install.packages("pacman")
 library(pacman)
 
 pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table","ModelMetrics","SuperLearner", "plyr")
@@ -11,8 +11,9 @@ N_CUSTOMER=100000
 EXPERIMENT_SIZE=N_CUSTOMER
 #RATIO_SAMPLE=0.05
 
+set.seed(1234)
 expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  # >0 indicates more than 50% purchasers
-                      tau_zero =   0.8, # >0 indicates positive treatment effect)
+                      tau_zero =   0.425, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
 
 #### Examplary basic churn reponse model
@@ -61,7 +62,7 @@ imbalanced <- list()
 individual <- list()
 test <- list()
 
-set.seed(123)
+set.seed(1234)
 # Repeat sampling n times  
 NO_EXPERIMENT_ITER = 100
 IMBALANCED_EXP_RATIO = 0.66
@@ -84,16 +85,20 @@ for(i in 1:NO_EXPERIMENT_ITER){
 
 #### Experiment Summary statistics ####
 exp_summary <- foreach(exp=list(none, all,balanced, imbalanced, individual),.combine="rbind", .inorder = TRUE)%do%{
-  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$g), "response_ratio" = mean(x$y)) )
-  c(rowMeans(temp), "response_ratio_sd"=sd(temp["response_ratio",]) )
+  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$g), "response_ratio" = mean(x$y), "weighted_response_ratio" = weighted.mean(x$y, 1/x$prop)) )
+  c(apply(temp,1,median), "treatment_ratio_sd"=sd(temp["treatment_ratio",]) ,"response_ratio_sd"=sd(temp["response_ratio",]) )
 }
 row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
 round(t(exp_summary),3)
+
+fwrite(data.table(round(t(exp_summary),3),keep.rownames = T), 
+       "../experiment_summary.txt")
 
 #### Experiment outcomes ####
 CONTACT_COST = 1 # Contact costs
 OFFER_COST = 0 # Price reduction
 VALUE = c(10,20,30,40,50,60,70)
+
 
 
 #VALUE_matrix <- rep(VALUE, 100)
@@ -239,7 +244,8 @@ source("Qini.R")
 
 library("parallel")
 library("doParallel")
-cl <- makeCluster( max(1,detectCores()-1))
+#cl <- makeCluster( max(1,detectCores()-1))
+cl <- makeCluster(30)
 registerDoParallel(cl)
 RNGkind("L'Ecuyer-CMRG")  
 clusterSetRNGStream(cl,iseed = 1234567)
@@ -272,7 +278,7 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   
   for(rand_scheme in names(exp)){
   ## ATE baseline
-  ate_hat <- calc_ATE(exp[[rand_scheme]]$y, exp[[rand_scheme]]$g, exp[[rand_scheme]]$prop_score)
+  ate_hat <- calc_ATE(y = exp[[rand_scheme]]$y, g = exp[[rand_scheme]]$g, prop_score = exp[[rand_scheme]]$prop_score)
   pred[[paste0("ATE_",rand_scheme)]] <- rep(ate_hat, times = nrow(X_test) ) 
   
   ## Train t-learner
@@ -299,8 +305,8 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   return(list("pred"=pred, "true"=test))
 }
 
-#saveRDS(model_library, "../ICIS19/model_library_20190428.rds")
-model_library <- readRDS("../ICIS19/model_library_20190428.rds")
+saveRDS(model_library, "../model_library_20190501.rds")
+#model_library <- readRDS("../model_library_20190430.rds")
 
 #### Calculate performance for each model ####
 # New metric can be specified here
@@ -310,9 +316,11 @@ performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, ta
   if(!is.null(y_true) & !is.null(w)) res[["Qini"]] <- qini_score(scores = tau_score, Y = y_true, W = w, p_treatment = prop_score)
 
   for(basket_value in value){
-    res[[paste0("profit_",basket_value)]] <- catalogue_profit(y=y_true, contact_cost = 2, offer_cost = 0, value = basket_value,
+    res[[paste0("targeted_ratio",basket_value)]] <- mean(targeting_policy(
+      tau_hat = tau_score, offer_cost = CONTACT_COST, customer_value = basket_value))
+    res[[paste0("profit_",basket_value)]] <- catalogue_profit(y=y_true, contact_cost = CONTACT_COST, offer_cost = 0, value = basket_value,
                                  g=targeting_policy(
-                                   tau_hat = tau_score, offer_cost = 2, customer_value = basket_value)
+                                   tau_hat = tau_score, offer_cost = CONTACT_COST, customer_value = basket_value)
                                  )
   }
   
@@ -336,20 +344,33 @@ res <- res[,.("perf_mean" = mean(value), "perf_sd" = sd(value)),by=.(model, metr
 setorder(res, metric,model)
 
 # CATE model performance for statistical performance measures/KPIs
-res_KPI <- dcast(res[!grepl("profit",metric),], metric~model, value.var = "perf_mean")
+res_KPI <- dcast(res[!grepl("profit",metric)&!grepl("targeted",metric),], metric~model, value.var = "perf_mean")
+
+# CATE model targeted ratio
+res_targeted <- dcast(res[grepl("targeted",metric),], metric~model, value.var = "perf_mean")
 
 # CATE model performance for profit
 res_profit <- dcast(res[grepl("profit",metric),], metric~model, value.var = "perf_mean")
-res_profit[,"metric"] <- gsub(res_profit[,"metric"],pattern = "profit_",replacement = "")
+res_profit <- as.data.frame(res_profit)
+res_profit$metric <- gsub(as.character(res_profit$metric),pattern = "profit_",replacement = "")
 res_profit[,-1] <- res_profit[,-1]/(0.5*N_CUSTOMER)
+
+res_profit_net <- res_profit
+# Calculate profit as net profit compared to balanced
 for(model in c("ATE","CF","logit")){
-res_profit[,grepl(model, colnames(res_profit))] <- res_profit[,grepl(model, colnames(res_profit))] - 
+  res_profit_net[,grepl(model, colnames(res_profit))] <- res_profit[,grepl(model, colnames(res_profit))] - 
                                                    unlist(res_profit[grepl(paste0(model,"_balanced"), colnames(res_profit))])
 }
 
 # Final tables
+fwrite(res_targeted, "../CATE_targeted.txt")
+fwrite(res_KPI, "../CATE_KPI.txt")
+fwrite(res_profit_net, "../CATE_profit_net.txt")
+fwrite(res_profit, "../CATE_profit.txt")
+
 res_KPI
 res_profit
+res_profit_net
 
 # t.test(perf_CATE$t_logit$balanced,perf_CATE$t_logit_DR$balanced)
 # t.test(perf_CATE$t_logit_DR$balanced,perf_CATE$CF$balanced)

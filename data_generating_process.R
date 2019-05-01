@@ -1,32 +1,36 @@
-#### Test  ####
+# #### Test  ####
 # N_VAR=20
-# N_CUSTOMER=20000
+# N_CUSTOMER=10000
 # EXPERIMENT_SIZE=N_CUSTOMER
 # expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  # >0 indicates more than 50% purchasers
-#                       tau_zero =   0.5, # >0 indicates positive treatment effect)
+#                       tau_zero =   0.425, # >0 indicates positive treatment effect)
 #                       DGP="nonlinear")
 # 
 # # Location and scale of treatment effects
-# quantile(probs=seq(0,1,0.1),
+# round(quantile(probs=seq(0,1,0.05),
 # do_experiment(
-#   make_customers(EXPERIMENT_SIZE, 20), 
+#   make_customers(EXPERIMENT_SIZE, 20),
 #   expControl = expCtrl, prop_score = 1)$tau
-# )
+# ),3)
+# 
+# mean(do_experiment(
+#   make_customers(EXPERIMENT_SIZE, 20),
+#   expControl = expCtrl, prop_score = 1)$tau)
 # 
 # # Response rate without treatment
 # mean(probs=seq(0,1,0.1),
 #          do_experiment(
-#            make_customers(EXPERIMENT_SIZE, 20), 
+#            make_customers(EXPERIMENT_SIZE, 20),
 #            expControl = expCtrl, prop_score = 0)$y
 # )
 # 
 # # Response rate with treatment
 # mean(probs=seq(0,1,0.1),
 #      do_experiment(
-#        make_customers(EXPERIMENT_SIZE, 20), 
+#        make_customers(EXPERIMENT_SIZE, 20),
 #        expControl = expCtrl, prop_score = 1)$y
 # )
-
+# 
 
 #### Experiment Functions ####
 # Generate a population X
@@ -52,7 +56,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,D
   beta_zero = ifelse(is.null(beta_zero),0,beta_zero)
   beta = rnorm(n_var, mean = 0, sd = 0.5)
   beta_x2 = rnorm(n_var, mean = 0, sd = 1)
-  beta_tau = rnorm(n_var, mean = 0, sd = 0.05)
+  beta_tau = rnorm(n_var, mean = 0, sd = 0.11)
   if(is.null(tau_zero)){
     tau_zero = rnorm(1, mean=0, sd=0.01)
   }
@@ -179,3 +183,4 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score, "class"=class))
   
 }
+
