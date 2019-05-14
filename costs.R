@@ -12,33 +12,69 @@ targeting_policy <- function(tau_hat, offer_cost, customer_value){
   return(treatment)
 }
 
+#### Transformed outcome loss ####
+transformed_outcome_loss <- function(treatment_effect, Y, W, p_treatment){
+  ###
+  # Biased estimate of the MSE (tau - tau_hat)^2 via the transformed outcome
+  # See Athey & Imbens (2016) Recursive Partitioning for Heterogeneous Causal Effects
+  #     Hitsch & Misra (2018): Heterogeneous Treatment Effects and Optimal Targeting Policy Evaluation
+  ###
+  Y_transformed <- Y * (W - p_treatment) / (p_treatment * (1-p_treatment))
+  return( mean( (Y_transformed - treatment_effect)^2) )
+}
+
 
 #### Churn costs ####
-churn_cost <- function(y, g, contact_cost, offer_cost, value){
-  total <- sum((1-g)*(1-y)) * 0 +
-    sum(g*y)         * -(contact_cost + customer_value) +
-    sum(g*(1-y))     * -(contact_cost + offer_cost)+
-    sum((1-g)*y)     * -customer_value
+churn_cost <- function(y, w, contact_cost, offer_cost, value){
+  total <- sum((1-w)*(1-y)) * 0 +
+    sum(w*y)         * -(contact_cost + customer_value) +
+    sum(w*(1-y))     * -(contact_cost + offer_cost)+
+    sum((1-w)*y)     * -customer_value
   
   return(total)
   
-  #(mean(g)*               -cost_treatment_fix +
-  #mean(g)*(1-mean(y))*   -cost_treatment_var +
+  #(mean(w)*               -cost_treatment_fix +
+  #mean(w)*(1-mean(y))*   -cost_treatment_var +
   #mean(y)*               -cost_churn)*
   #n_customer
 }
 
 #### Catalogue Campaign Profit ####
-catalogue_profit <- function(y, g, contact_cost, offer_cost=0, value){
-  total <- 
-    # Not treated/no purchase
-    sum((1-g)*(1-y)) * 0 +
-    # Treated/purchase
-    sum(g*y)         * (value - contact_cost) +
-    # Treated/no purchase
-    sum(g*(1-y))     * (-contact_cost)+
-    # Not treated/purchase
-    sum((1-g)*y)     * (value)
+catalogue_profit <- function(y, w, contact_cost, offer_cost=0, value, mode="total"){
+  if(!mode %in% c("total","individual")){
+    stop("Argument mode must be one of ['total', 'individual]")
+  }
   
-  return(total)
+  profit <- (
+    # Not treated/no purchase
+    (1-w)*(1-y) * 0 +
+    # Treated/purchase
+    w*y         * (value - contact_cost) +
+    # Treated/no purchase
+    w*(1-y)     * (-contact_cost)+
+    # Not treated/purchase
+    (1-w)*y     * (value)
+  )
+  
+  if(mode=="total"){
+      profit <- sum(profit)
+  }
+  
+  return(profit)
 }
+
+#### Expected Profit on Usable Observations
+expected_profit <- function(policy_decision, profit, treatment_group, p_treatment){
+  ### 
+  # Calculate expected profit of a candidate targeting policy on randomized trial data.
+  # See Hitsch & Misra (2018): Heterogeneous Treatment Effects and Optimal Targeting Policy Evaluation for details
+  ###
+  
+  # Intuitively: When treatment group matches policy decision then add the profit corrected by the prob. that the 
+  # random treatment group matches the policy decision (either e(x) or 1-e(x) )
+  return( sum((1-treatment_group)*(1-policy_decision)/(1-p_treatment)*profit + (treatment_group)*(policy_decision)/(p_treatment)*profit) )
+}
+
+  
+  
+  

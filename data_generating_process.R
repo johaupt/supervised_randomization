@@ -69,7 +69,7 @@ expControl <- function(n_var, mode="regression", tau_zero=NULL, beta_zero=NULL,D
 
 # Create data given the data generating process defined in 
 # the experiment control object
-do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, random_state=NULL){
+do_experiment <- function(X, expControl=NULL, y=NULL, w=NULL, prop_score=NULL, X_out=TRUE, random_state=NULL){
   ###
   # X (array):
   #    Matrix of observations
@@ -79,7 +79,32 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   #    Propensity score for random treatment. If g is not NULL it will override prop_score
   #
   ###
+  if(is.null(expControl) & any(is.null(Y), is.null(W))){
+    stop("Either expControl (simulation) or Y and W (usable obersvations) must be given.")
+  }
+  
+  tau <- NULL
+  class <- NULL
+  logit <- function(x) 1/(1+exp(-x))
   n_obs = nrow(X)
+  
+  # X needs to be a matrix for calculation
+  if(!"matrix" %in% class(X)){
+    X <- as.matrix(X)
+  }
+  
+  # Set random state
+  if(!is.null(random_state)) set.seed(random_state)
+  
+  # Sample treatment group based on propensity
+  g = rbinom(nrow(X), 1, prop_score)
+  if(length(prop_score)==1){
+      prop_score <- rep(prop_score, times=nrow(X))
+  }
+
+  
+  # Simulate data if expControl is not NULL
+  if(!is.null(expControl)){
   beta_zero = expControl$beta_zero
   beta = expControl$beta
   beta_x2 = expControl$beta_x2
@@ -87,27 +112,7 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
   tau_zero = expControl$tau_zero
   mode = expControl$mode
   DGP = expControl$DGP
-  
-  logit <- function(x) 1/(1+exp(-x))
-  
-  # X needs to be a matrix for calculation
-  if(!"matrix" %in% class(X)){
-    X <- as.matrix(X)
-  }
-  
-  if(is.null(g)){
-    if(is.null(prop_score)){
-      g = rep(0, times=nrow(X))
-    }else{
-      g = rbinom(nrow(X), 1, prop_score)
-      if(length(prop_score)==1){
-        prop_score <- rep(prop_score, times=nrow(X))
-      }
-    }
-  }
-  
 
-  if(!is.null(random_state)) set.seed(random_state)
   
   if(DGP %in% c('linear', 'nonlinear')){
   
@@ -173,14 +178,23 @@ do_experiment <- function(X, expControl, g=NULL, prop_score=NULL, X_out=FALSE, r
           stop("Only mode 'classification' or 'regression' currently implemented")
         } 
       }
-      } else{ stop("Choose between 'linear' or 'nonlinear'")}
+  } else{ stop("Choose between 'linear' or 'nonlinear'")}
+  
+  #### Sample from existing randomized controlled trial
+  }else{
+    usable <- W==g
+    X <- X[usable,]
+    y <- y[usable,]
+    g <- g[usable,]
+    prop_score <- prop_score[usable,]
+  }
         
   
   if(X_out==FALSE){
     X = NULL
   }
   
-  return(list("X"=X, "y"=y, "tau"=tau, "g"=g, "prop_score"=prop_score, "class"=class))
+  return(list("X"=X, "y"=y, "g"=g, "tau"=tau, "prop_score"=prop_score, "class"=class))
   
 }
 

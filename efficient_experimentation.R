@@ -2,8 +2,9 @@
 #install.packages("pacman")
 library(pacman)
 
-pacman::p_load("ggplot2","reshape","reshape2","cowplot","car","drtmle","grf","foreach","uplift","data.table","ModelMetrics","SuperLearner", "plyr")
+pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr")
 
+#### Simulation ####
 source("data_generating_process.R")
 
 N_VAR=20
@@ -16,11 +17,21 @@ expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  #
                       tau_zero =   0.425, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
 
+X_train  <- make_customers(N_CUSTOMER, N_VAR)
+X_test  <- make_customers(N_CUSTOMER, N_VAR)
+
+####
+data <- fread("../data/explore.csv")
+data <- rbind(data[data$controlGroup==1,], 
+              data[data$controlGroup==0,][sample(sum(data$controlGroup==0), size=sum(data$controlGroup), replace=FALSE),]
+)
+data$W <- abs(data$controlGroup-1)
+data$controlGroup <- NULL
+
+
 #### Examplary basic churn reponse model
 # This can be any model that maps some business value to a treatment probability
 # For churn, the churn probability is an obvious candidate, but could be rescaled
-X_train  <- make_customers(N_CUSTOMER, N_VAR)
-X_test  <- make_customers(N_CUSTOMER, N_VAR)
 response_model <- glm(y~., family = binomial(link="logit"),
                       cbind(X_train, y=do_experiment(X_train, expControl = expCtrl, prop_score = 0)$y) 
 )
@@ -84,7 +95,7 @@ for(i in 1:NO_EXPERIMENT_ITER){
 
 #### Experiment Summary statistics ####
 exp_summary <- foreach(exp=list(none, all,balanced, imbalanced, individual),.combine="rbind", .inorder = TRUE)%do%{
-  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$g), "response_ratio" = mean(x$y), "weighted_response_ratio" = weighted.mean(x$y, 1/x$prop)) )
+  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$w), "response_ratio" = mean(x$y), "weighted_response_ratio" = weighted.mean(x$y, 1/x$prop)) )
   c(apply(temp,1,median), "treatment_ratio_sd"=sd(temp["treatment_ratio",]) ,"response_ratio_sd"=sd(temp["response_ratio",]) )
 }
 row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
@@ -118,7 +129,7 @@ for(j in 1:length(VALUE)) {
   profit_scenario <- as.vector(sapply(
     exp,
     #exp[c("none","all","balanced","imbalanced","individual")],
-      function(B) profit(B$y, B$g, contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / length(B$y)))
+      function(B) profit(B$y, B$w, contact_cost = CONTACT_COST, offer_cost = OFFER_COST, value=VALUE_iter) / length(B$y)))
   
 profit_all
 
@@ -160,23 +171,23 @@ print(df_profit)
 write.csv2(df_profit, file = "Table5_ProfitsSavings.csv")
 
 ### ATE Estimation ####
-calc_ATE <- function(y, g, prop_score){
+calc_ATE <- function(y, w, prop_score){
   #if(is.null(prop_score)){
   #  prop_score = rep(0.5, length(y))
   #}
-  return( (sum(y*g/prop_score) - sum(y*(1-g)/(1-prop_score)) ) /length(y) )
+  return( (sum(y*w/prop_score) - sum(y*(1-w)/(1-prop_score)) ) /length(y) )
 }
 
 ATE <- data.frame()
 
 for(i in 1:NO_EXPERIMENT_ITER){
-  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$g, prop_score = 0.5)
+  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$w, prop_score = 0.5)
 
-  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$g, prop_score = IMBALANCED_EXP_RATIO)
+  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$w, prop_score = IMBALANCED_EXP_RATIO)
   
-  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$g, individual[[i]]$prop_score)
+  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$w, individual[[i]]$prop_score)
   
-  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$g,W=X[[i]],a_0 = c(1,0),
+  ATE[i,"balanced_dr"] <- ci(drtmle(Y=balanced[[i]]$y,A=balanced[[i]]$w,W=X[[i]],a_0 = c(1,0),
                                     family=binomial(),
                                     stratify=TRUE,
                                     SL_Q = c("SL.glm"),
@@ -184,7 +195,7 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                     SL_Qr = "SL.glm",
                                     SL_gr = "SL.glm", maxIter = 1),contrast=c(1,-1))$drtmle[1]
 
-  ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$g,W=X[[i]],a_0 = c(1,0),
+  ATE[i,"individual_dr"] <- ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$w,W=X[[i]],a_0 = c(1,0),
                                       family=binomial(),
                                       stratify=TRUE,
                                       SL_Q = c("SL.glm"),
@@ -278,18 +289,18 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   
   for(rand_scheme in names(exp)){
   ## ATE baseline
-  ate_hat <- calc_ATE(y = exp[[rand_scheme]]$y, g = exp[[rand_scheme]]$g, prop_score = exp[[rand_scheme]]$prop_score)
+  ate_hat <- calc_ATE(y = exp[[rand_scheme]]$y, w = exp[[rand_scheme]]$w, prop_score = exp[[rand_scheme]]$prop_score)
   pred[[paste0("ATE_",rand_scheme)]] <- rep(ate_hat, times = nrow(X_test) ) 
   
   ## Train t-learner
-  t_logit <- T_Logit(X_train, exp[[rand_scheme]]$y, exp[[rand_scheme]]$g,
+  t_logit <- T_Logit(X_train, exp[[rand_scheme]]$y, exp[[rand_scheme]]$w,
                      exp[[rand_scheme]]$prop_score)
   
   # Save predictions on test set in list pred
   pred[[paste0('t-logit_',rand_scheme)]] <- unname(predict(t_logit, X_test))
   
   ## Train causal forest
-  cf <- grf::causal_forest(X=X_train,Y=exp[[rand_scheme]]$y, W=exp[[rand_scheme]]$g,
+  cf <- grf::causal_forest(X=X_train,Y=exp[[rand_scheme]]$y, W=exp[[rand_scheme]]$w,
                            W.hat = exp[[rand_scheme]]$prop_score,
                            honesty=TRUE,
                            ci.group.size = CI.GROUP.SIZE,
@@ -319,7 +330,7 @@ performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, ta
     res[[paste0("targeted_ratio",basket_value)]] <- mean(targeting_policy(
       tau_hat = tau_score, offer_cost = CONTACT_COST, customer_value = basket_value))
     res[[paste0("profit_",basket_value)]] <- catalogue_profit(y=y_true, contact_cost = CONTACT_COST, offer_cost = 0, value = basket_value,
-                                 g=targeting_policy(
+                                 w=targeting_policy(
                                    tau_hat = tau_score, offer_cost = CONTACT_COST, customer_value = basket_value)
                                  )
   }
@@ -330,7 +341,7 @@ performance_CATE <- function(tau_score, y_true=NULL, w=NULL, prop_score=NULL, ta
 # Calculate performance per iteration
 res <- lapply(model_library, function(ITER) lapply(ITER$pred, function(PRED){
   performance_CATE(tau_score= PRED,
-                   y_true=ITER$true$y, w = ITER$true$g, prop_score = ITER$true$prop_score, tau_true = ITER$true$tau, value=VALUE)
+                   y_true=ITER$true$y, w = ITER$true$w, prop_score = ITER$true$prop_score, tau_true = ITER$true$tau, value=VALUE)
 } ))
 
 # Combine models into one data table per iteration
