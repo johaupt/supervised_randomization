@@ -1,8 +1,8 @@
 #### Packages ####
-#install.packages("pacman")
+install.packages("pacman")
 library(pacman)
 
-pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel")
+pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel", "lattice", "corrplot")
 source("t_logit.R")
 source("Qini.R")
 source("data_generating_process.R")
@@ -29,6 +29,7 @@ expCtrl <- NULL
 source("load_uplift19.R")
 path = "../data/explore.csv"
 data <- load_uplift19(path)
+
 # Sample the amount of control observations from the indices of the treatment group
 idx_balanced <- c( which(data[["W"]] == 1)[sample(sum(data[["W"]] == 1), size=sum(data[["W"]] == 0), replace=FALSE)], 
                    which(data[["W"]] == 0))
