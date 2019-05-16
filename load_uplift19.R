@@ -50,7 +50,24 @@ load_uplift19 <- function(path){
   # Drop constant variables
   data <- data[, sapply(data, function(x) length(unique(x))) != 1, with=FALSE]
   
-  data <- data.table(predict(caret::dummyVars(~., data, sep="_", fullRank=TRUE), data))
+  # Drop variables with a correlation >0.9
+  dropVar <- c("DidConvertLastYear", "DidVisitLastYear", "ViewedBefore.overview.", 
+               "log.of.SecondsSinceFirst.home.", "log.of.SecondsSinceFirst.account.", 
+               "log.of.SecondsSinceFirst.about.", "log.of.SecondsSinceFirst.search.", 
+               "log.of.SecondsSinceFirst.overview.", "log.of.SecondsSinceFirst.product.", 
+               "log.of.SecondsSinceFirst.sale.", "log.of.ViewsOn.overview.", 
+               "log.of.NumberOfDifferent.sale.", "log.of.NumberOfDifferent.search.", 
+               "log.of.NumberOfDifferent.about.", "ClientKnown", "log.of.SecondsSinceOn.account.", 
+               "log.of.SecondsSinceOn.about.", "log.of.SecondsSinceOn.sale.", 
+               "log.of.SecondsSpentOn.account.", "log.of.SecondsSpentOn.about.", 
+               "log.of.SecondsSpentOn.overview.", "log.of.SecondsSinceOn.home.", 
+               "log.of.SecondsSpentOn.sale.", "ScreenTypeIs.product.", "ViewedBefore.account.", 
+               "ViewedBefore.about.", "log.of.ViewsOn.product.", "log.of.ViewsOn.sale.", 
+               "ViewedBefore.home.", "log.of.ViewsOn.home.", "log.of.ViewsOn.account."
+  )
+  data[, (dropVar) := NULL]
+  
+  data <- data.table(predict(caret::dummyVars(~., data, sep="_", fullRank=TRUE), data), keep.rownames = FALSE)
   
   TARGET = "converted"
   PROFIT = "checkoutAmount"

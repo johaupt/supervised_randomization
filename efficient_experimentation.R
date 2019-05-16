@@ -2,10 +2,11 @@
 #install.packages("pacman")
 library(pacman)
 
-pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel")
+pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel", "SuperLearner")
 source("t_logit.R")
 source("Qini.R")
 source("data_generating_process.R")
+source("supervised_randomization.R")
 
 #### Simulation ####
 Y = NULL
@@ -22,7 +23,7 @@ expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  #
                       DGP="nonlinear")
 
 X  <- make_customers(N_CUSTOMER, N_VAR)
-Y <- do_experiment(X_train, expControl = expCtrl, prop_score = 0)$y
+Y <- do_experiment(X, expControl = expCtrl, prop_score = 0)$y
 
 ####
 expCtrl <- NULL
@@ -42,34 +43,40 @@ X_VALUE <- data[["value"]][idx_balanced]
 #### Examplary basic churn reponse model
 # This can be any model that maps some business value to a treatment probability
 # For churn, the churn probability is an obvious candidate, but could be rescaled
+set.seed(1234)
+# Remove training data for targeting model from dataset
+idx_targeting_model <- sample(nrow(X), size=9000)
+X_targeting <- X[idx_targeting_model,]
+Y_targeting <- Y[idx_targeting_model]
+W_targeting <- W[idx_targeting_model]
+X <- X[-idx_targeting_model,]
+Y <- Y[-idx_targeting_model]
+W <- W[-idx_targeting_model]
+
+# Train targeting model: We assume that a company would have an existing model
 #targeting_model <- glm(y~., family = binomial(link="logit"), cbind(X, "y"=Y) )
-targeting_model <- T_Logit(X, Y, W, rep(0.5, times=nrow(X)))
-targeting_pred <- predict(response_model, X, type = "response")
+targeting_model <- T_Logit(X_targeting, Y_targeting, W_targeting, prop_score = rep(0.5, length(idx_targeting_model)))
+#targeting_model <- T_Logit_DR(X_targeting, Y_targeting, W_targeting)
+#targeting_model <- causalTree::causalTree(y~., cbind("y"=Y[idx_targeting_model], X[idx_targeting_model,]), treatment = W[idx_targeting_model], 
+#                                          split.Rule='CT', split.Honest = TRUE, cv.option="CT", split.Bucket=FALSE,
+#                                          cp=0,minsize=40)
+ # targeting_model <- grf::causal_forest(X= X_targeting, Y = Y_targeting, W = W_targeting,
+ #                         #W.hat = 0.5,
+ #                         honesty=TRUE,
+ #                         ci.group.size = 1,
+ #                         num.trees=2000, min.node.size=12,
+ #                         mtry=5, sample.fraction = 0.5)
+
+## Training data performance
+targeting_pred <- predict(targeting_model, X_targeting, type = "response")
+#targeting_pred <- predict(targeting_model, X_targeting)[,1]
+qini_score(scores = targeting_pred, Y_targeting, W_targeting, plotit=TRUE)
+
+# Test data performance
+targeting_pred <- predict(targeting_model, X, type = "response")
+#targeting_pred <- predict(targeting_model, X)[,1]
 #ModelMetrics::auc(Y, targeting_pred)
-
-## Individual biased random treatment (based on propensity)
-map_propensity <- function(model_score, target_ratio, groups=9){
-# Platt scaling
-# platt_scaler <- glm(y~prob, family=binomial(link='logit'), 
-#                     weights = ifelse(exp$none$y==1, 1/(mean(exp$none$y==1)), 1),
-#                     data = data.frame(cbind('y'=exp$none$y,'prob'=churn_pred))
-#                     )
-# treat_prob <- predict(platt_scaler, newdata=data.frame(prob=churn_pred), type='response')
-  # Cut into groups based on the score quantiles
-  model_score <- cut(model_score,breaks=quantile(model_score,seq(0,1,1/groups)),labels=FALSE, include.lowest = TRUE)-1
-
-  # Adjust to expected target ratio by shifting min or max
-  if(target_ratio<=0.5){
-    new_max <- 2*target_ratio - 0.05
-    model_score <- 0.05 + model_score* (new_max-0.05)/(groups-1)
-  }
-  if(target_ratio>0.5){
-    new_min <- 2*target_ratio - 0.95
-    model_score <- new_min + model_score* (0.95-new_min)/(groups-1)
-  }
-
- return(model_score)
-}
+qini_score(scores = targeting_pred, Y, W, plotit=TRUE)
 
 
 #### Create experiments ####
@@ -83,7 +90,7 @@ test <- list()
 
 set.seed(1234)
 # Repeat sampling n times  
-NO_EXPERIMENT_ITER = 100
+NO_EXPERIMENT_ITER = 20
 IMBALANCED_EXP_RATIO = 0.75
 
 # ICIS submission:
@@ -93,22 +100,22 @@ IMBALANCED_EXP_RATIO = 0.75
 # NOW:
 # Fix customer data X. For each iteration:
 # - Run experiment for each randomization procedure, save experiment in respective list
+X_iter <- X
 for(i in 1:NO_EXPERIMENT_ITER){
   #X_iter <- make_customers(EXPERIMENT_SIZE, 20)
   #X[[i]] <- X_iter
-  X_iter <- X
   balanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 0.5)
   imbalanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = IMBALANCED_EXP_RATIO)
   individual[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W,
-                                   prop_score = map_propensity(predict(response_model, X_iter, type="response"), 
-                                                               target_ratio=IMBALANCED_EXP_RATIO, groups=50))
+                                   prop_score = map_propensity(predict(targeting_model, X_iter), 
+                                                               target_ratio=IMBALANCED_EXP_RATIO, groups=20))
   none[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 0)
   all[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 1)
 }
 
 #### Experiment Summary statistics ####
 exp_summary <- foreach(exp=list(none, all,balanced, imbalanced, individual),.combine="rbind", .inorder = TRUE)%do%{
-  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$w), "response_ratio" = mean(x$y), "weighted_response_ratio" = weighted.mean(x$y, 1/x$prop)) )
+  temp <- sapply(exp, function(x)   c("treatment_ratio" = mean(x$w), "response_ratio" = mean(x$y)) )
   c(apply(temp,1,median), "treatment_ratio_sd"=sd(temp["treatment_ratio",]) ,"response_ratio_sd"=sd(temp["response_ratio",]) )
 }
 row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
@@ -191,22 +198,28 @@ calc_ATE <- function(y, w, prop_score){
   return( (sum(y*w/prop_score) - sum(y*(1-w)/(1-prop_score)) ) /length(y) )
 }
 
-ATE <- data.frame()
 
+# Register cluster for parallel processing
+cl <- makeCluster(3)
+registerDoParallel(cl)
+RNGkind("L'Ecuyer-CMRG")  
+clusterSetRNGStream(cl,iseed = 1234567)
 
-for(i in 1:NO_EXPERIMENT_ITER){
-  ATE[i,"balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$w, prop_score = 0.5)
+# ATE for each experimental setting
+ATE <- foreach(i=1:NO_EXPERIMENT_ITER,.combine = "rbind", .multicombine = TRUE)%dopar%{
+  ATE_temp <- c()
+  ATE_temp["balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$w, prop_score = 0.5)
 
-  ATE[i,"imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$w, prop_score = IMBALANCED_EXP_RATIO)
+  ATE_temp["imbalanced"] <- calc_ATE(imbalanced[[i]]$y, imbalanced[[i]]$w, prop_score = IMBALANCED_EXP_RATIO)
 
   
-  ATE[i,"individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$w, individual[[i]]$prop_score)
+  ATE_temp["individual"] <- calc_ATE(individual[[i]]$y, individual[[i]]$w, individual[[i]]$prop_score)
   
   gn <- list()
   gn[[1]] <- individual[[i]]$prop_score
   gn[[2]] <- 1 - individual[[i]]$prop_score
-  
-  ATE[i,"individual_dr"] <-  ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$w,W=X[[i]],a_0 = c(1,0),
+
+  ATE_temp["individual_dr"] <-  ci(drtmle(Y=individual[[i]]$y,A=individual[[i]]$w,W=individual[[i]]$X,a_0 = c(1,0),
                                        family=binomial(),
                                        stratify=TRUE,
                                        SL_Q = c("SL.glm"),
@@ -217,15 +230,14 @@ for(i in 1:NO_EXPERIMENT_ITER){
                                        maxIter = 1),contrast=c(1,-1))$drtmle[1]
 
   # True ATE
-  ATE[i,"true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
+  ATE_temp["true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
+  
+  return(ATE)
 }
 
 
-
-
-
 # Estimated ATE
-ATE_hat <- apply(ATE[],2,mean)
+ATE_hat <- apply(ATE,2,mean)
 ATE_hat
 
 ATE2 <- ATE[,c(5,1,2,3,4)]
@@ -298,7 +310,7 @@ model_library <- foreach(i=1:N_ITER, .combine="list", .multicombine=TRUE, .expor
   exp <- list(
   "balanced" = do_experiment(X_train, expControl = expCtrl, prop_score = 0.5),
   "imbalanced" = do_experiment(X_train, expControl = expCtrl, prop_score = IMBALANCED_EXP_RATIO),
-  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(response_model, X_train, type="response"), target_ratio=IMBALANCED_EXP_RATIO))
+  "individual" = do_experiment(X_train, expControl = expCtrl, prop_score = map_propensity(predict(targeting_model, X_train, type="response"), target_ratio=IMBALANCED_EXP_RATIO))
   )
   
   # Predictions from each model are saved in a list 'pred'

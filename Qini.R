@@ -29,14 +29,14 @@
 #  qini_score(scores, Y, W, p_treatment = p_treatment, plotit=TRUE)
 
  
-
-calc_ATE <- function(y, g, prop_score){
-  if(length(prop_score)==1){
-    prop_score = rep(prop_score, length(y))
-  }
-  return( sum(y*g/prop_score)/sum(g*1/prop_score) - sum(y*(1-g)/(1-prop_score))/sum((1-g)*1/prop_score)  )
-  #return( (sum(y*g/prop_score) - sum(y*(1-g)/(1-prop_score)) ) /length(y) )
-}
+# DEPRECATED
+#calc_ATE <- function(y, g, prop_score){
+#  if(length(prop_score)==1){
+#    prop_score = rep(prop_score, length(y))
+#  }
+#  return( sum(y*g/prop_score)/sum(g*1/prop_score) - sum(y*(1-g)/(1-prop_score))/sum((1-g)*1/prop_score)  )
+#  #return( (sum(y*g/prop_score) - sum(y*(1-g)/(1-prop_score)) ) /length(y) )
+#}
 
 
 ### QINI SCORE (propensity corrected)
@@ -58,7 +58,7 @@ qini_score <- function(scores, Y, W, p_treatment=0.5, groups = 10, plotit=FALSE)
   setorder(mm, ct,decile)
   
   # ATE per decile
-  uplift <- mm[, .(uplift=calc_ATE(y = y, g = ct, prop_score = prop_score)),by=decile]
+  #uplift <- mm[, .(uplift=calc_ATE(y = y, g = ct, prop_score = prop_score)),by=decile]
   
   # No. of positive responses and group size
   #deciles <- mm[, .(y1=sum(y), n=.N),by=.(decile, ct)]
