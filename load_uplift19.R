@@ -1,5 +1,7 @@
 library(data.table)
 library(caret)
+library(lattice)
+library(corrplot)
 
 load_uplift19 <- function(path){
   data <- fread(path, check.names = TRUE)
@@ -51,6 +53,29 @@ load_uplift19 <- function(path){
   data <- data[, sapply(data, function(x) length(unique(x))) != 1, with=FALSE]
   
   data <- data.table(predict(caret::dummyVars(~., data, sep="_", fullRank=TRUE), data))
+  
+  # Missing and negative values
+  apply(data, 2, function(x) any(is.na(x))) # no missing values
+  data <- as.data.frame(lapply(data, function(x){replace(x, x <0,0)})) # replace negative values with zero
+  
+  # Multicollinearity
+  metavars_left = c('converted', 'checkoutAmount', 'treatmentGroup')
+  data = data[c(metavars_left, setdiff(names(data),metavars_left))]
+  num <- c(4:ncol(data)) # disregard meta-variables
+  cor_num_P <- cor(data[,num],use="pairwise.complete.obs", method="pearson")
+  #corrplot(corr = cor_num_P, method="pie", tl.cex=0.3, diag=F,type="lower")
+  corr_var <- findCorrelation(cor_num_P, cutoff = .90, verbose= TRUE, names= TRUE, exact = TRUE)
+  data <- data[ , !(names(data) %in% corr_var)]
+  
+  # Multivariate outliers
+  mod <- lm(converted ~ ., data=data)
+  cooksd <- cooks.distance(mod)
+  sample_size <- nrow(data)
+  plot(cooksd, pch="*", cex=2, main="Outliers as determined by Cooks distance")
+  abline(h = 4/sample_size, col="blue")
+  text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4/sample_size, names(cooksd),""), col="blue")
+  outl <- as.numeric(names(cooksd)[(cooksd > (4/sample_size))])
+  data <- data[-outl, ] # removed 5000 observations that had outliers
   
   TARGET = "converted"
   PROFIT = "checkoutAmount"
