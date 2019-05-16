@@ -2,10 +2,14 @@
 #install.packages("pacman")
 library(pacman)
 
-pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr")
+pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel")
+source("t_logit.R")
+source("Qini.R")
+source("data_generating_process.R")
 
 #### Simulation ####
-source("data_generating_process.R")
+Y = NULL
+W = NULL
 
 N_VAR=20
 N_CUSTOMER=100000
@@ -17,27 +21,31 @@ expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  #
                       tau_zero =   0.425, # >0 indicates positive treatment effect)
                       DGP="nonlinear")
 
-X_train  <- make_customers(N_CUSTOMER, N_VAR)
-X_test  <- make_customers(N_CUSTOMER, N_VAR)
+X  <- make_customers(N_CUSTOMER, N_VAR)
+Y <- do_experiment(X_train, expControl = expCtrl, prop_score = 0)$y
 
 ####
-data <- fread("../data/explore.csv")
-data <- rbind(data[data$controlGroup==1,], 
-              data[data$controlGroup==0,][sample(sum(data$controlGroup==0), size=sum(data$controlGroup), replace=FALSE),]
-)
-data$W <- abs(data$controlGroup-1)
-data$controlGroup <- NULL
+expCtrl <- NULL
+source("load_uplift19.R")
+path = "../data/explore.csv"
+data <- load_uplift19(path)
+# Sample the amount of control observations from the indices of the treatment group
+idx_balanced <- c( which(data[["W"]] == 1)[sample(sum(data[["W"]] == 1), size=sum(data[["W"]] == 0), replace=FALSE)], 
+                   which(data[["W"]] == 0))
+
+X <- data[["X"]][idx_balanced,]
+Y <- data[["Y"]][idx_balanced]
+W <- data[["W"]][idx_balanced]
+X_VALUE <- data[["value"]][idx_balanced]
 
 
 #### Examplary basic churn reponse model
 # This can be any model that maps some business value to a treatment probability
 # For churn, the churn probability is an obvious candidate, but could be rescaled
-response_model <- glm(y~., family = binomial(link="logit"),
-                      cbind(X_train, y=do_experiment(X_train, expControl = expCtrl, prop_score = 0)$y) 
-)
-response_pred <- predict(response_model, X_test, type = "response")
-ModelMetrics::auc(do_experiment(X_test, expControl = expCtrl, prop_score = 0)$y, 
-                  response_pred)
+#targeting_model <- glm(y~., family = binomial(link="logit"), cbind(X, "y"=Y) )
+targeting_model <- T_Logit(X, Y, W, rep(0.5, times=nrow(X)))
+targeting_pred <- predict(response_model, X, type = "response")
+#ModelMetrics::auc(Y, targeting_pred)
 
 ## Individual biased random treatment (based on propensity)
 map_propensity <- function(model_score, target_ratio, groups=9){
@@ -65,7 +73,7 @@ map_propensity <- function(model_score, target_ratio, groups=9){
 
 
 #### Create experiments ####
-X <- list()
+#X <- list()
 none <- list()
 all <- list()
 balanced <- list()
@@ -76,21 +84,26 @@ test <- list()
 set.seed(1234)
 # Repeat sampling n times  
 NO_EXPERIMENT_ITER = 100
-IMBALANCED_EXP_RATIO = 0.66
+IMBALANCED_EXP_RATIO = 0.75
 
+# ICIS submission:
 # Repeat experiment NO_EXPERIMENT_ITER times. For each iteration:
 # - Fix the customer data X_iter and save it to list X
 # - Run experiment for each randomization procedure, save experiment in respective list
+# NOW:
+# Fix customer data X. For each iteration:
+# - Run experiment for each randomization procedure, save experiment in respective list
 for(i in 1:NO_EXPERIMENT_ITER){
-  X_iter <- make_customers(EXPERIMENT_SIZE, 20)
-  X[[i]] <- X_iter
-  balanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 0.5)
-  imbalanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = IMBALANCED_EXP_RATIO)
-  individual[[i]] <- do_experiment(X_iter, expControl = expCtrl, 
+  #X_iter <- make_customers(EXPERIMENT_SIZE, 20)
+  #X[[i]] <- X_iter
+  X_iter <- X
+  balanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 0.5)
+  imbalanced[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = IMBALANCED_EXP_RATIO)
+  individual[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W,
                                    prop_score = map_propensity(predict(response_model, X_iter, type="response"), 
-                                                               target_ratio=IMBALANCED_EXP_RATIO, groups=20))
-  none[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 0)
-  all[[i]] <- do_experiment(X_iter, expControl = expCtrl, prop_score = 1)
+                                                               target_ratio=IMBALANCED_EXP_RATIO, groups=50))
+  none[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 0)
+  all[[i]] <- do_experiment(X_iter, expControl = expCtrl, y=Y, w=W, prop_score = 1)
 }
 
 #### Experiment Summary statistics ####
@@ -102,7 +115,7 @@ row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
 round(t(exp_summary),3)
 
 fwrite(data.table(round(t(exp_summary),3),keep.rownames = T), 
-       "../experiment_summary.txt")
+       "../experiment_summary_20190515.txt")
 
 #### Experiment outcomes ####
 CONTACT_COST = 1 # Contact costs
@@ -258,11 +271,7 @@ leveneTest(lev_sample,lev_group) # H0: Homogeneity of Variance
 #### CATE Estimation####
 
 ### Model evaluation ####
-source("t_logit.R")
-source("Qini.R")
 
-library("parallel")
-library("doParallel")
 #cl <- makeCluster( max(1,detectCores()-1))
 cl <- makeCluster(30)
 registerDoParallel(cl)

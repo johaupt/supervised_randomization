@@ -88,11 +88,6 @@ do_experiment <- function(X, expControl=NULL, y=NULL, w=NULL, prop_score=NULL, X
   logit <- function(x) 1/(1+exp(-x))
   n_obs = nrow(X)
   
-  # X needs to be a matrix for calculation
-  if(!"matrix" %in% class(X)){
-    X <- as.matrix(X)
-  }
-  
   # Set random state
   if(!is.null(random_state)) set.seed(random_state)
   
@@ -103,8 +98,13 @@ do_experiment <- function(X, expControl=NULL, y=NULL, w=NULL, prop_score=NULL, X
   }
 
   
-  # Simulate data if expControl is not NULL
+  #### Simulate data if expControl is not NULL 
   if(!is.null(expControl)){
+    # X needs to be a matrix for calculation
+    if(!"matrix" %in% class(X)){
+      X <- as.matrix(X)
+    }
+    
   beta_zero = expControl$beta_zero
   beta = expControl$beta
   beta_x2 = expControl$beta_x2
@@ -184,9 +184,9 @@ do_experiment <- function(X, expControl=NULL, y=NULL, w=NULL, prop_score=NULL, X
   }else{
     usable <- W==g
     X <- X[usable,]
-    y <- y[usable,]
-    g <- g[usable,]
-    prop_score <- prop_score[usable,]
+    y <- y[usable]
+    g <- g[usable]
+    prop_score <- prop_score[usable]
   }
         
   
@@ -194,7 +194,7 @@ do_experiment <- function(X, expControl=NULL, y=NULL, w=NULL, prop_score=NULL, X
     X = NULL
   }
   
-  return(list("X"=X, "y"=y, "g"=g, "tau"=tau, "prop_score"=prop_score, "class"=class))
+  return(list("X"=X, "y"=y, "w"=g, "tau"=tau, "prop_score"=prop_score, "class"=class))
   
 }
 
