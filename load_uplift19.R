@@ -1,12 +1,12 @@
 library(data.table)
-library(caret)
-library(lattice)
-library(corrplot)
 
 load_uplift19 <- function(path){
   data <- fread(path, check.names = TRUE)
   # Keep only campaigns that assign a 15 absolute amount coupon for consistency
   data <- data[campaignValue==15 & campaignUnit=="CURRENCY", ]
+  
+  # Keep only view counts<=60
+  data <- data[targetViewCount<=60, ]
   
   # Rename Treatment Indicator
   data$treatmentGroup <- abs(data$controlGroup-1)
@@ -99,3 +99,9 @@ load_uplift19 <- function(path){
   W = "treatmentGroup"
   return(list("X"=data[,!c(TARGET, PROFIT, W), with=FALSE], "Y"=data[[TARGET]], "value"=data[[PROFIT]], "W"=data[[W]]))
 }
+
+#### TESTS ####
+#data <- load_uplift19("../data/explore.csv")
+#str(data,1)
+#lm <- glm(w~., cbind(data$X, "w"=data$W), family = "binomial")
+#ModelMetrics::auc(actual=data$W, predict(lm, type='response'))

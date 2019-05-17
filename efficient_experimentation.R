@@ -1,14 +1,13 @@
 #### Packages ####
-install.packages("pacman")
+#install.packages("pacman")
 library(pacman)
-
-
 pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel", "SuperLearner")
 
 source("t_logit.R")
 source("Qini.R")
 source("data_generating_process.R")
 source("supervised_randomization.R")
+source("costs.R")
 
 #### Simulation ####
 Y = NULL
@@ -25,7 +24,10 @@ expCtrl <- expControl(n_var = N_VAR, mode = "classification", beta_zero = -3,  #
                       DGP="nonlinear")
 
 X  <- make_customers(N_CUSTOMER, N_VAR)
-Y <- do_experiment(X, expControl = expCtrl, prop_score = 0)$y
+exp_temp <- do_experiment(X, expControl = expCtrl, prop_score = 0.5)
+Y <- exp_temp$y
+W <- exp_temp$w
+TAU <- exp_temp$tau
 
 ####
 expCtrl <- NULL
@@ -46,9 +48,9 @@ X_VALUE <- data[["value"]][idx_balanced]
 #### Examplary basic churn reponse model
 # This can be any model that maps some business value to a treatment probability
 # For churn, the churn probability is an obvious candidate, but could be rescaled
-set.seed(1234)
+set.seed(123)
 # Remove training data for targeting model from dataset
-idx_targeting_model <- sample(nrow(X), size=9000)
+idx_targeting_model <- sample(nrow(X), size=10000)
 X_targeting <- X[idx_targeting_model,]
 Y_targeting <- Y[idx_targeting_model]
 W_targeting <- W[idx_targeting_model]
@@ -60,9 +62,9 @@ W <- W[-idx_targeting_model]
 #targeting_model <- glm(y~., family = binomial(link="logit"), cbind(X, "y"=Y) )
 targeting_model <- T_Logit(X_targeting, Y_targeting, W_targeting, prop_score = rep(0.5, length(idx_targeting_model)))
 #targeting_model <- T_Logit_DR(X_targeting, Y_targeting, W_targeting)
-#targeting_model <- causalTree::causalTree(y~., cbind("y"=Y[idx_targeting_model], X[idx_targeting_model,]), treatment = W[idx_targeting_model], 
-#                                          split.Rule='CT', split.Honest = TRUE, cv.option="CT", split.Bucket=FALSE,
-#                                          cp=0,minsize=40)
+# targeting_model <- causalTree::causalTree(y~., cbind("y"=Y[idx_targeting_model], X[idx_targeting_model,]), treatment = W[idx_targeting_model], 
+#                                           split.Rule='CT', split.Honest = TRUE, cv.option="CT", split.Bucket=FALSE,
+#                                           cp=0,minsize=40)
  # targeting_model <- grf::causal_forest(X= X_targeting, Y = Y_targeting, W = W_targeting,
  #                         #W.hat = 0.5,
  #                         honesty=TRUE,
@@ -71,15 +73,23 @@ targeting_model <- T_Logit(X_targeting, Y_targeting, W_targeting, prop_score = r
  #                         mtry=5, sample.fraction = 0.5)
 
 ## Training data performance
-targeting_pred <- predict(targeting_model, X_targeting, type = "response")
-#targeting_pred <- predict(targeting_model, X_targeting)[,1]
-qini_score(scores = targeting_pred, Y_targeting, W_targeting, plotit=TRUE)
+ModelMetrics::auc(actual=Y_targeting[W_targeting==0], predicted=predict(targeting_model$model0, X_targeting, type = "response")[W_targeting==0])
+ModelMetrics::auc(actual=Y_targeting[W_targeting==1], predicted=predict(targeting_model$model0, X_targeting, type = "response")[W_targeting==1])
+
+pred_targeting <- predict(targeting_model, X_targeting, type = "response")
+#pred_targeting <- predict(targeting_model, X_targeting)[,1]
+cor(pred_targeting[W_targeting==1], Y_targeting[W_targeting==1],method = "spearman")
+qini_score(scores = pred_targeting, Y_targeting, W_targeting, plotit=TRUE)
+transformed_outcome_loss(pred_targeting, Y_targeting, W_targeting, p_treatment = 0.5)
 
 # Test data performance
-targeting_pred <- predict(targeting_model, X, type = "response")
-#targeting_pred <- predict(targeting_model, X)[,1]
-#ModelMetrics::auc(Y, targeting_pred)
-qini_score(scores = targeting_pred, Y, W, plotit=TRUE)
+ModelMetrics::auc(actual=Y[W==0], predicted=predict(targeting_model$model0, X[W==0,], type = "response"))
+ModelMetrics::auc(actual=Y[W==1], predicted=predict(targeting_model$model1, X[W==1,], type = "response"))
+pred <- predict(targeting_model, X, type = "response")
+#pred <- predict(targeting_model, X)[,1]
+cor(pred[W==1], Y[W==1], method = "spearman")
+qini_score(scores = pred, Y, W, plotit=TRUE)
+transformed_outcome_loss(pred, Y, W, p_treatment = 0.5)
 
 
 #### Create experiments ####
@@ -93,7 +103,7 @@ test <- list()
 
 set.seed(1234)
 # Repeat sampling n times  
-NO_EXPERIMENT_ITER = 20
+NO_EXPERIMENT_ITER = 100
 IMBALANCED_EXP_RATIO = 0.75
 
 # ICIS submission:
@@ -125,7 +135,7 @@ row.names(exp_summary) <- c("none","all","balanced","imbalanced","supervised")
 round(t(exp_summary),3)
 
 fwrite(data.table(round(t(exp_summary),3),keep.rownames = T), 
-       "../experiment_summary_20190515.txt")
+       "../experiment_summary_real_20190515.txt")
 
 #### Experiment outcomes ####
 CONTACT_COST = 1 # Contact costs
@@ -209,7 +219,7 @@ RNGkind("L'Ecuyer-CMRG")
 clusterSetRNGStream(cl,iseed = 1234567)
 
 # ATE for each experimental setting
-ATE <- foreach(i=1:NO_EXPERIMENT_ITER,.combine = "rbind", .multicombine = TRUE)%dopar%{
+ATE <- foreach(i=1:NO_EXPERIMENT_ITER,.combine = "rbind", .multicombine = TRUE, .packages = c("drtmle","SuperLearner"))%dopar%{
   ATE_temp <- c()
   ATE_temp["balanced"] <- calc_ATE(balanced[[i]]$y, balanced[[i]]$w, prop_score = 0.5)
 
@@ -235,7 +245,7 @@ ATE <- foreach(i=1:NO_EXPERIMENT_ITER,.combine = "rbind", .multicombine = TRUE)%
   # True ATE
   ATE_temp["true_ATE"] <- mean(all[[i]]$y) - mean(none[[i]]$y)
   
-  return(ATE)
+  return(ATE_temp)
 }
 
 
@@ -246,7 +256,7 @@ ATE_hat
 ATE2 <- ATE[,c(5,1,2,3,4)]
 ate_box <- melt(ATE2)
 
-ggplot(data = ate_box, aes(x=variable, y=value)) + 
+ggplot(data = ate_box, aes(x=Var2, y=value)) + 
   geom_boxplot() + 
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15, size = 2) +
   geom_hline(aes(yintercept=ATE_hat[5]),linetype="dashed") +
@@ -257,8 +267,7 @@ ggplot(data = ate_box, aes(x=variable, y=value)) +
         axis.text.y = element_text(size=14),
         axis.title.x = element_text( size=16),
         axis.title.y = element_text(size=16))+ 
-  
-  ylim(c(0.05,0.08))
+  ylim(c(-0.05,0.05))
 
 
 # T-Test for mean Difference (H0)

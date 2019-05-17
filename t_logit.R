@@ -27,7 +27,11 @@ T_Logit <- function(X, y, W, prop_score=NULL){
 # Prediction function for two-model class 
 predict.tlearner <- function(object, newdata, ...){
   pred_diff <- predict(object$model1, newdata, ...) - 
-    predict(object$model0, newdata, ...)
+               predict(object$model0, newdata, ...)
+  
+  if(!is.null(ncol(pred_diff))){
+    pred_diff <- pred_diff[,ncol(pred_diff)]
+  }
   return(pred_diff)
 }
 

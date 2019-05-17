@@ -38,6 +38,7 @@
 #  #return( (sum(y*g/prop_score) - sum(y*(1-g)/(1-prop_score)) ) /length(y) )
 #}
 
+library(data.table)
 
 ### QINI SCORE (propensity corrected)
 qini_score <- function(scores, Y, W, p_treatment=0.5, groups = 10, plotit=FALSE){
