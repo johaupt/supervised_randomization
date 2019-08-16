@@ -12,6 +12,13 @@ targeting_policy <- function(tau_hat, offer_cost, customer_value){
   return(treatment)
 }
 
+top_decile_targeting_policy <- function(tau_hat){
+  tau_hat_order <- order(tau_hat, decreasing = TRUE)
+  cutoff <- floor(0.1 * length(tau_hat))
+  treatment <- ifelse(tau_hat_order <= cutoff, 1, 0)
+  return(treatment)
+}
+
 #### Transformed outcome loss ####
 transformed_outcome_loss <- function(treatment_effect, Y, W, p_treatment){
   ###
