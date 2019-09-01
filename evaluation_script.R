@@ -1,14 +1,14 @@
 #### Packages ####
 #install.packages("pacman")
 library(pacman)
-pacman::p_load("ggplot2","reshape2","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel", "SuperLearner", "tidyverse", "nnet", "xtable")
-
-RNGkind("L'Ecuyer-CMRG")
+pacman::p_load("ggplot2","reshape2","caret","drtmle","grf","foreach","uplift","data.table","ModelMetrics", "plyr", "parallel", "doParallel", "SuperLearner", "tidyverse", "nnet", "xtable")
 
 source("supervised_randomization.R")
 source("t_logit.R")
 source("Qini.R")
 source("costs.R")
+
+RNGkind("L'Ecuyer-CMRG")
 
 calc_ATE <- function(y, w, prop_score){
   #if(is.null(prop_score)){
@@ -49,10 +49,9 @@ tau_model <- function(X, hidden_layer, ATE){
 
 X <- data[,!(colnames(data)=="y")]
 
-set.seed(123456789)
-
 # Simulation bankmarketing
 X_tau <- X[,c(1:24, 43:48)]
+set.seed(123456789)
 TAU <- tau_model(X_tau, hidden_layer=ncol(X_tau), ATE=0.05)
 X <- X[,!(colnames(X) %in% c("age", "maritalmarried", "maritalsingle"))]
 
@@ -63,7 +62,7 @@ X <- X[,!(colnames(X) %in% c("age", "maritalmarried", "maritalsingle"))]
 
 quantile(TAU, probs = seq(0,1,0.025))
 
-# Simulate outcome without treatment
+
 R <- rbinom(nrow(data), size = 1, prob = abs(TAU))
 Y <- cbind(Y0=data$y, Y1=data$y)
 
@@ -77,7 +76,6 @@ for(i in 1:nrow(Y)){
 # Sanity check: ATE should match target ATE
 ATE <- mean(Y[,2]) - mean(Y[,1])
 ATE
-
 
 #### Existing Targeting Model ####
 # Vary error variance to make the existing model better or worse
@@ -96,33 +94,27 @@ do_experiment <- function(Y1, Y0, prop_score){
 }
 
 
-#### Register cluster for parallel processing ####
-cl <- makeCluster(3)
-registerDoParallel(cl)
-RNGkind("L'Ecuyer-CMRG")
-clusterSetRNGStream(cl,iseed = 123456789)
-
 #### SET PARAMETERS ####
 
 # Cross-Validation split
 NO_FOLDS = 4
 NO_EXPERIMENT_ITER = 50
-IMBALANCED_EXP_RATIO = 0.66
+IMBALANCED_EXP_RATIO = 0.666
 
-DEFAULT_TARGETING_ERROR = 0.05
+DEFAULT_TARGETING_ERROR = 0.025
 
-set.seed(123456789)
+#set.seed(123456789)
 test_idx_list <- caret::createFolds(Y[,2] - Y[,1], k = NO_FOLDS, list = TRUE, returnTrain = FALSE)
 
 # Model error
-UPLIFT_MODEL_ERROR <- c(0, 0.005, 0.01, 0.02, 0.05, 0.1, 0.15)
+UPLIFT_MODEL_ERROR <- c(0.025, 0.04, 0.05, 0.08) #c(0, 0.005, 0.01, 0.025, 0.04, 0.05, 0.08, 0.1, 0.15)
 uplift_model_error_list <- foreach(e=UPLIFT_MODEL_ERROR)%do% rnorm(length(TAU), 0, e)
 
 # Profit setting
 CONTACT_COST = 1 # Contact costs
 OFFER_COST = 0 # Price reduction
 
-VALUE = seq(10, 100, 5)
+VALUE = c(seq(5, 80, 5))
 
 exp_grid = data.frame(expand.grid(list(
   "uplift_model_error_idx" = 1:length(uplift_model_error_list),
@@ -132,6 +124,14 @@ exp_grid = data.frame(expand.grid(list(
 )))
 # The uplift model error is only relevant for supervised randomization
 exp_grid <- exp_grid[ !((exp_grid$uplift_model_error_idx != 1) & (exp_grid$randomization != "supervised")), ]
+
+
+#### Register cluster for parallel processing ####
+cl <- makeCluster(25)
+registerDoParallel(cl)
+RNGkind("L'Ecuyer-CMRG") 
+clusterSetRNGStream(cl,iseed = 123456789)
+
 
 #### Experiment Cost Summary  ####
 exp_grid_ABtest <- rbind(exp_grid, 
@@ -157,12 +157,11 @@ result_exp <- foreach(exp_idx = 1:nrow(exp_grid_ABtest), .inorder=TRUE, .combine
           # Simulate existing uplift model
           tau_hat <- TAU + uplift_model_error_list[[uplift_model_error_idx ]]
           # Get score quantiles from training set for mapping 
-          #score_quantiles_ <- get_score_quantiles_(tau_hat[-test_idx], groups=18)
-          #supervised_prop_score <- map_propensity_quantiles(model_score = tau_hat[-test_idx], score_breaks = score_quantiles_, target_ratio = 0.5)
-          
-          supervised_prop_score <- map_propensity_logistic(model_score = tau_hat[-test_idx], 
-                                                           min_score = quantile(tau_hat[-test_idx], probs=0.05), 
-                                                           max_score = quantile(tau_hat[-test_idx], probs=0.95))
+          score_quantiles_ <- get_score_quantiles_(tau_hat[-test_idx], groups=18)
+          supervised_prop_score <- map_propensity_quantiles(model_score = tau_hat[-test_idx], score_breaks = score_quantiles_, target_ratio = 0.5)
+          # supervised_prop_score <- map_propensity_logistic(model_score = tau_hat[-test_idx], 
+          #                                                  min_score = quantile(tau_hat[-test_idx], probs=0.05), 
+          #                                                  max_score = quantile(tau_hat[-test_idx], probs=0.95))
           
           if(randomization=="none") prop_score <- 0
           if(randomization=="all") prop_score <- 1
@@ -202,7 +201,7 @@ row.names(exp_summary) <- NULL
 print(exp_summary)
 
 fwrite(data.table(exp_summary,keep.rownames = F), 
-       paste0(results_path, "raw_experiment_summary_20190815.txt"))
+       paste0(results_path, "raw_experiment_summary_20190826.txt"))
 
 randomization_values <- c("none", "full", "supervised","imbalanced", "all")
 randomization_labels <- c("None", "Full", "Supervised","Full (Imb.)", "All")
@@ -257,8 +256,9 @@ result_ATE <- foreach(exp_idx = 1:nrow(exp_grid), .inorder=TRUE, .combine=rbind,
   # Get score quantiles from training set for mapping 
   score_quantiles_ <- get_score_quantiles_(tau_hat[test_idx], groups=18)
   supervised_prop_score <- map_propensity_quantiles(model_score = tau_hat[test_idx], score_breaks = score_quantiles_, target_ratio = 0.5)
-  
-  #supervised_prop_score <- map_propensity_logistic(model_score = tau_hat[test_idx], min_score = min(tau_hat[-test_idx]), max_score = max(tau_hat[-test_idx]))
+  # supervised_prop_score <- map_propensity_logistic(model_score = tau_hat[-test_idx],
+  #                                                  min_score = quantile(tau_hat[-test_idx], probs=0.05), 
+  #                                                  max_score = quantile(tau_hat[-test_idx], probs=0.95))
   
   if(randomization=="none") prop_score <- rep(0, nrow(X[test_idx,]))
   if(randomization=="all") prop_score <- rep(1, nrow(X[test_idx,]))
@@ -317,7 +317,6 @@ saveRDS(result_ATE, paste0(results_path, "ATE_predictions_20190821.rds"))
 
 # Keep only one target model error rate
 result_ATE_table <- result_ATE[result_ATE$randomization!="supervised" | result_ATE$uplift_model_error==DEFAULT_TARGETING_ERROR,]
-
 # Sort the boxplots by sorting the factor variable
 result_ATE_table$estimator <- factor(result_ATE_table$estimator, levels = c("IPW","DR"), labels=c("IPW", "DR"))
 
@@ -327,10 +326,10 @@ ATE_plot <- ggplot(data = result_ATE[result_ATE_table$estimator=="DR"|result_ATE
   stat_summary(fun.y = "mean", geom = "point", colour = "blue", shape = 15) + #, size = 2
   geom_hline(aes(yintercept=ATE),linetype="dashed") +
   labs(x="Randomization", y = "ATE") +
-  scale_x_discrete(labels=c("full.DR" = "full", "imbalanced.DR" = "full (imb.)",
+  scale_x_discrete(labels=c("full.DR" = "full (balanced)", "imbalanced.DR" = "full (imbalanced)",
                             "supervised.IPW" = "supervised (IPW)","supervised.DR" = "supervised (DR)")) +
   theme_classic()+
-  theme(axis.text.x = element_text(size=11, color="black"))+
+  theme(axis.text.x = element_text(size=12, color="black"))+
   # theme(axis.text.x = element_text(size=14),
   #       axis.text.y = element_text(size=14),
   #       axis.title.x = element_text( size=16),
@@ -340,18 +339,6 @@ ATE_plot <- ggplot(data = result_ATE[result_ATE_table$estimator=="DR"|result_ATE
 ggsave(paste0("ATE_boxplot_",NO_FOLDS*NO_EXPERIMENT_ITER, ".pdf"), plot = ATE_plot, device = "pdf", path=results_path,
               width = 14, height = 8, units = "cm",
               dpi = 400)
-
-## Statistical tests
-library(car)
-# Test for equal variance (H0)
-ATE_estimators_temp <- result_ATE[result_ATE_table$randomization=="supervised",]
-leveneTest(ATE_estimators_temp$ATE_hat, interaction(ATE_estimators_temp$randomization, ATE_estimators_temp$estimator)) # H0: Homogeneity of Variance 
-
-# T-Test for mean Difference (H0)
-ATE_estimators_temp <- result_ATE[result_ATE_table$estimator=="DR"|result_ATE_table$randomization=="supervised",]
-kruskal.test(ATE_estimators_temp$ATE_hat, interaction(ATE_estimators_temp$randomization, ATE_estimators_temp$estimator)) # H0: Homogeneity of Variance 
-
-
 
 ##### CATE #####
 # Set model parameters
@@ -381,6 +368,9 @@ pred_CATE <- foreach(exp_idx = 1:nrow(exp_grid), .inorder=TRUE, .packages=c("grf
   # Get score quantiles from training set for mapping 
   score_quantiles_ <- get_score_quantiles_(tau_hat[-test_idx], groups=18)
   supervised_prop_score <- map_propensity_quantiles(model_score = tau_hat[-test_idx], score_breaks = score_quantiles_, target_ratio = 0.5)
+  # supervised_prop_score <- map_propensity_logistic(model_score = tau_hat[-test_idx], 
+  #                                                  min_score = quantile(tau_hat[-test_idx], probs=0.05), 
+  #                                                  max_score = quantile(tau_hat[-test_idx], probs=0.95))
   
   if(randomization=="none") prop_score <- rep(0, nrow(X_train))
   if(randomization=="all") prop_score <- rep(1, nrow(X_train))
@@ -411,26 +401,26 @@ pred_CATE <- foreach(exp_idx = 1:nrow(exp_grid), .inorder=TRUE, .packages=c("grf
   pred[['t-logit']] <- unname(predict(t_logit, X_test, type='response'))
   
   ## MOM Logit (see Knaus 2018)
-  # mom_logit <- MOM_Logit(X = X_train, y = y, W = w, prop_score = prop_score)
-  # pred[['mom-logit']] <- unname(predict(mom_logit, X_test))
+  #mom_logit <- MOM_Logit(X = X_train, y = y, W = w, prop_score = prop_score)
+  #pred[['mom-logit']] <- unname(predict(mom_logit, X_test))
   
   ## T Tree
   # t_rpart <- T_rpart(X = X_train, y = y, W = w, prop_score = prop_score, method="class")
   # pred[['t-tree']] <- unname(predict(t_rpart, X_test, type='prob'))
   
   ## T Neural Network
-  # t_nnet <- T_NNet(X = X_train, y = y, W = w, prop_score = prop_score, trace=TRUE)
-  # pred[['t-nnet']] <- unname(predict(t_nnet, X_test, type='raw'))
+  #t_nnet <- T_NNet(X = X_train, y = y, W = w, prop_score = prop_score, trace=TRUE)
+  #pred[['t-nnet']] <- unname(predict(t_nnet, X_test, type='raw'))
   
   #Causal Forest
-  # cf <- grf::causal_forest(X=X_train,Y=y, W=w,
-  #                          W.hat = prop_score,
-  #                          honesty=TRUE,
-  #                          ci.group.size = CI.GROUP.SIZE,
-  #                          num.trees=NUM.TREES, min.node.size=MIN.NODE.SIZE,
-  #                          mtry=MTRY, sample.fraction = SAMPLE.FRACTION)
-  # 
-  # pred[['CF']] <- predict(cf, X_test)[,1]
+  cf <- grf::causal_forest(X=X_train,Y=y, W=w,
+                           W.hat = prop_score,
+                           honesty=TRUE,
+                           ci.group.size = CI.GROUP.SIZE,
+                           num.trees=NUM.TREES, min.node.size=MIN.NODE.SIZE,
+                           mtry=MTRY, sample.fraction = SAMPLE.FRACTION)
+
+  pred[['CF']] <- predict(cf, X_test)[,1]
   
   # Collect results
   return(pred)
@@ -477,13 +467,13 @@ CATE_perf <- foreach(exp_idx=1:nrow(exp_grid), .combine=rbind, .packages = "data
 }
 
 CATE_summary <- CATE_perf %>% group_by(randomization, uplift_model_error, metric, model) %>% summarize("value"=mean(value))
-model_names <- c("true","ATE",  "oracle_regression", "t-logit", "t-tree", "mom-logit", "CF")
+model_names <- c("true","ATE",  "oracle_regression", "t-logit", "t-tree", "mom-logit", "CF", "t-nnet")
 CATE_summary$model <- factor(CATE_summary$model, levels = model_names, labels = model_names)
 
 CATE_summary <- data.frame(CATE_summary)
 row.names(CATE_summary) <- NULL
 
-saveRDS(CATE_summary, "../CATE_summary_20190816.rds")
+saveRDS(CATE_summary, "../CATE_summary_20190826.rds")
 
 ### Statistical Performance Table
 stat_table <- dcast(CATE_summary[ CATE_summary$metric %in% c("mae","qini") & CATE_summary$model %in% c("ATE","t-logit","CF") & (CATE_summary$randomization!="supervised" | CATE_summary$uplift_model_error==DEFAULT_TARGETING_ERROR),], 
@@ -491,7 +481,7 @@ stat_table <- dcast(CATE_summary[ CATE_summary$metric %in% c("mae","qini") & CAT
 row.names(stat_table) <- NULL                    
 
 sink(paste0(results_path, "CATE_stat_table.txt"))
-print(stat_table)
+print(stat_table, digits=4)
 cat("\n\n\n")
 print( 
   xtable(stat_table, digits=4),
@@ -522,7 +512,7 @@ stat_table$metric <-  str_remove(stat_table$metric, "profit_cutoff_")
 stat_table[, 2:ncol(stat_table)] <- stat_table[, 2:ncol(stat_table)]/mean(sapply(test_idx_list, length))
 
 sink(paste0(results_path, "CATE_profit_table.txt"))
-print(stat_table)
+print(stat_table, digits=2)
 cat("\n\n\n")
 print( 
   xtable(stat_table, digits=2),
@@ -557,7 +547,7 @@ error_model_profit <- dcast(CATE_summary[ CATE_summary$metric %in% c("mae","qini
 print(xtable(error_model_profit, digits=3), include.rownames=FALSE)
 
 # CATE Profit
-error_model_profit <- dcast(CATE_summary[ grepl(pattern = "profit_cutoff", CATE_summary$metric)  & CATE_summary$model %in% c("CF") & CATE_summary$randomization=="supervised",],  #"t-logit",
+error_model_profit <- dcast(CATE_summary[ grepl(pattern = "profit_cutoff", CATE_summary$metric)  & CATE_summary$model %in% c("t-logit","CF") & CATE_summary$randomization=="supervised",],  #
                             metric ~ model + uplift_model_error, row.names=FALSE)
 
 error_model_profit[, 2:ncol(error_model_profit)] <- error_model_profit[, 2:ncol(error_model_profit)]/mean(sapply(test_idx_list, length))
