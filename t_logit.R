@@ -114,6 +114,35 @@ T_rpart <- function(X, y, W, prop_score=NULL, method='class'){
   return(t_learner)
 }
 
+
+# Two-Model nnet
+T_NNet <- function(X, y, W, prop_score=NULL, trace=FALSE){
+  data <- data.frame(X,".y"=y)
+  if(is.null(prop_score)){
+    weights0 = NULL
+    weights1 = NULL
+  }else{
+    weights0 = (1/(1-prop_score[W==0])) 
+    weights1 = (1/prop_score[W==1])
+  }
+  
+  # Train model for W0
+  model0 <- nnet(.y~., size=ncol(X),
+                weights = weights0,
+                data = data[W==0,], 
+                entropy=TRUE, maxit=500, MaxNWts=5000, decay=0.001, reltol = 1e-6, trace=trace)
+  
+  # Train model for W1
+  model1 <- nnet(.y~., size=ncol(X),
+                weights = weights1, 
+                data = data[W==1,],
+                entropy=TRUE, maxit=500, MaxNWts=5000, decay=0.001, reltol= 1e-6, trace=trace)
+  
+  t_learner <- list(model0=model0, model1=model1)
+  class(t_learner) <- c("tlearner")
+  return(t_learner)
+}
+
 # Prediction function for two-model class 
 predict.tlearner <- function(object, newdata, ...){
   pred_diff <- predict(object$model1, newdata, ...) - 
