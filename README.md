@@ -9,3 +9,7 @@ By replacing random targeting with supervised randomization, we reduce the costs
 
 ## Data
 The data we use for empirical monte carlo simulation is public at https://archive.ics.uci.edu/ml/datasets/Bank%2BMarketing
+
+# Code
+evaluation_script.R contains the code to replicate the tables and figures presented in the paper
+load_bankmarketing.R contains the code to preprocess the bank marketing dataset
